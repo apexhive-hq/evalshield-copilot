@@ -1,0 +1,24 @@
+{
+  "name": "@evalshield/cli",
+  "version": "1.0.0",
+  "description": "Local CLI and dashboard host for EvalShield Co-Pilot (human-in-the-loop prop-firm risk calculator & CSV journal).",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "evalshield": "./dist/src/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "pnpm run build && node --test dist/tests/*.test.js",
+    "start": "node dist/src/cli.js"
+  },
+  "dependencies": {
+    "@evalshield/core": "workspace:*",
+    "@evalshield/journal": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.8.3"
+  }
+}

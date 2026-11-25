@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>evalshield-copilot — Read-Only Prop-Firm Risk &amp; Discipline Co-Pilot</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container header-inner">
+      <div class="brand">
+        <img src="/favicon.svg" alt="evalshield-copilot logo">
+        <span>evalshield-copilot</span>
+      </div>
+      <nav class="nav-links" aria-label="Primary navigation">
+        <a href="#calculator">Risk &amp; Drawdown Shield</a>
+        <a href="#monte-carlo">Monte Carlo Survival</a>
+        <a href="#licensing">Open-Core Licensing</a>
+        <a href="https://github.com/apexhive-hq/evalshield-copilot" target="_blank" rel="noopener noreferrer">GitHub MIT</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="hero">
+      <span class="badge-pill">MIT Open-Core ($0 Local) · Zero Broker Keys · Read-Only Advisory Math</span>
+      <h1>Prop-Firm Drawdown Shield, CME Position Sizer &amp; Discipline Co-Pilot</h1>
+      <p class="subtitle">
+        Calculate exact Intraday vs. EOD trailing floors, ATR-adjusted CME contract caps with automatic micro fallbacks (<code>ES→MES</code>, <code>NQ→MNQ</code>, <code>GC→MGC</code>, <code>CL→MCL</code>), consistency-cap headroom, and 10,000-run evaluation survival odds.
+      </p>
+      <div id="compliance-firewall" class="firewall-banner">
+        <strong>Human-in-the-Loop Firewall (Apex / Topstep ToS &amp; Publisher Safe):</strong> Strictly read-only mathematical risk diagnostics and post-trade CSV/webhook execution journaling. Zero broker API credentials, zero automated order routing, and zero directional trade calls.
+      </div>
+    </section>
+
+    <section id="calculator" class="card">
+      <div class="toolbar" style="justify-content: space-between; margin-bottom: 12px;">
+        <h2 style="margin: 0;">Module A &amp; B: Trailing Drawdown &amp; CME Contract Shield</h2>
+        <div class="toolbar">
+          <button class="btn preset-btn" type="button" data-preset="topstep50k">Topstep $50k EOD</button>
+          <button class="btn preset-btn" type="button" data-preset="apex50k">Apex $50k Intraday</button>
+          <button class="btn preset-btn" type="button" data-preset="mffu50k">MFFU $50k Rapid</button>
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <div>
+          <label class="field-label" for="inp-mode">Drawdown Mode</label>
+          <select id="inp-mode" class="text-input">
+            <option value="EOD_TRAILING">EOD_TRAILING (Session Close)</option>
+            <option value="INTRADAY_TRAILING">INTRADAY_TRAILING (Real-Time HWM)</option>
+            <option value="STATIC">STATIC (Fixed Floor)</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label" for="inp-balance">Account Equity ($)</label>
+          <input id="inp-balance" class="text-input" type="number" value="50800" step="50">
+        </div>
+        <div>
+          <label class="field-label" for="inp-hwm">Peak HWM ($)</label>
+          <input id="inp-hwm" class="text-input" type="number" value="51200" step="50">
+        </div>
+        <div>
+          <label class="field-label" for="inp-dd-max">Max Trailing DD ($)</label>
+          <input id="inp-dd-max" class="text-input" type="number" value="2000" step="100">
+        </div>
+        <div>
+          <label class="field-label" for="inp-dll">Daily Loss Limit ($)</label>
+          <input id="inp-dll" class="text-input" type="number" value="1000" step="100">
+        </div>
+        <div>
+          <label class="field-label" for="inp-day-pnl">Session PnL ($)</label>
+          <input id="inp-day-pnl" class="text-input" type="number" value="-250" step="25">
+        </div>
+        <div>
+          <label class="field-label" for="inp-symbol">CME Contract</label>
+          <select id="inp-symbol" class="text-input">
+            <option value="ES">ES (E-mini S&amp;P — $12.50/tick)</option>
+            <option value="MES">MES (Micro S&amp;P — $1.25/tick)</option>
+            <option value="NQ" selected>NQ (E-mini Nasdaq — $5.00/tick)</option>
+            <option value="MNQ">MNQ (Micro Nasdaq — $0.50/tick)</option>
+            <option value="GC">GC (Gold — $10.00/tick)</option>
+            <option value="MGC">MGC (Micro Gold — $1.00/tick)</option>
+            <option value="CL">CL (WTI Crude — $10.00/tick)</option>
+            <option value="MCL">MCL (Micro Crude — $1.00/tick)</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label" for="inp-stop-ticks">User Stop (Ticks)</label>
+          <input id="inp-stop-ticks" class="text-input" type="number" value="40" min="1">
+        </div>
+        <div>
+          <label class="field-label" for="inp-atr">14-Bar ATR (Points)</label>
+          <input id="inp-atr" class="text-input" type="number" value="12.5" step="0.25" min="0">
+        </div>
+        <div>
+          <label class="field-label" for="inp-losses">Consecutive Losses Today</label>
+          <input id="inp-losses" class="text-input" type="number" value="1" min="0" max="20">
+        </div>
+      </div>
+
+      <div class="metrics-grid">
+        <div class="metric">
+          <div class="metric-label">Effective Floor</div>
+          <div id="out-floor" class="metric-value">$49,200</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Remaining Safe Buffer</div>
+          <div id="out-buffer" class="metric-value">$1,450</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Max Contracts Allowed</div>
+          <div id="out-contracts" class="metric-value">0</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Micro Fallback Cap</div>
+          <div id="out-micro" class="metric-value">7 MNQ</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Session Discipline Score</div>
+          <div id="out-quality" class="metric-value">85 / GO</div>
+        </div>
+      </div>
+
+      <div id="out-advisory" class="status-box ok"></div>
+    </section>
+
+    <section id="monte-carlo" class="card">
+      <div class="toolbar" style="justify-content: space-between; margin-bottom: 12px;">
+        <h2 style="margin: 0;">10,000-Run Evaluation Monte Carlo Simulator</h2>
+        <button id="mc-run-btn" class="btn btn-primary" type="button">Run 10,000 Simulations</button>
+      </div>
+
+      <div class="form-grid" style="margin-bottom: 12px;">
+        <div>
+          <label class="field-label" for="mc-winrate">Win Rate (%)</label>
+          <input id="mc-winrate" class="text-input" type="number" value="48" min="10" max="90">
+        </div>
+        <div>
+          <label class="field-label" for="mc-rr">Reward : Risk Ratio</label>
+          <input id="mc-rr" class="text-input" type="number" value="1.6" step="0.1" min="0.5" max="10">
+        </div>
+        <div>
+          <label class="field-label" for="mc-risk-trade">Risk Per Trade ($)</label>
+          <input id="mc-risk-trade" class="text-input" type="number" value="250" min="25" step="25">
+        </div>
+        <div>
+          <label class="field-label" for="mc-target">Eval Profit Target ($)</label>
+          <input id="mc-target" class="text-input" type="number" value="3000" min="500" step="250">
+        </div>
+      </div>
+
+      <div class="metrics-grid">
+        <div class="metric">
+          <div class="metric-label">Pass Probability</div>
+          <div id="mc-pass-pct" class="metric-value">-</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Drawdown Ruin Rate</div>
+          <div id="mc-ruin-pct" class="metric-value">-</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Median Trades to Result</div>
+          <div id="mc-median-trades" class="metric-value">-</div>
+        </div>
+      </div>
+
+      <div class="chart-wrap">
+        <svg id="mc-hist-svg" viewBox="0 0 420 140" role="img" aria-label="Monte Carlo survival distribution"></svg>
+      </div>
+    </section>
+
+    <section id="licensing" class="card">
+      <h2>Open-Core Licensing &amp; Non-Custodial Base USDC Checkout</h2>
+      <p class="subtitle">
+        MIT Local Core (`1` active account, all 3 drawdown modes, 8 CME contracts, and 4 broker CSV FIFO parsers) runs 100% offline at <code>$0</code> forever. Upgrade only for multi-account presets (20 or unlimited accounts), webhook ATR ingestion, and mentor CSV exports.
+      </p>
+
+      <div class="pricing-grid">
+        <div class="tier-card">
+          <div>
+            <h3>MIT Local Core</h3>
+            <div class="tier-price">0 USDC</div>
+            <ul class="tier-list">
+              <li>1 active prop evaluation account</li>
+              <li>Full Intraday / EOD / Static math + CME sizing</li>
+              <li>Tradovate, NT8, Rithmic &amp; TradingView CSV FIFO</li>
+            </ul>
+          </div>
+          <code class="code-block">git clone https://github.com/apexhive-hq/evalshield-copilot.git &amp;&amp; pnpm install --ignore-scripts &amp;&amp; pnpm run build</code>
+        </div>
+
+        <div class="tier-card featured">
+          <div>
+            <h3>Pro Solo Funded-Prep</h3>
+            <div class="tier-price">29 USDC</div>
+            <ul class="tier-list">
+              <li>Up to 20 simultaneous eval/PA accounts</li>
+              <li>Firm templates (Topstep / Apex / MFFU / Tradeify)</li>
+              <li>Read-only webhook ATR sink &amp; 10k Monte Carlo export</li>
+            </ul>
+          </div>
+          <button class="btn btn-primary tier-pick-btn" type="button" data-tier="solo">Select Solo (29 USDC)</button>
+        </div>
+
+        <div class="tier-card">
+          <div>
+            <h3>Pro Team / Coaching Desk</h3>
+            <div class="tier-price">99 USDC</div>
+            <ul class="tier-list">
+              <li>Unlimited trader profiles &amp; desk rollups</li>
+              <li>Desk-wide exposure cap templates</li>
+              <li>Offline Ed25519 verification</li>
+            </ul>
+          </div>
+          <button class="btn tier-pick-btn" type="button" data-tier="team">Select Team (99 USDC)</button>
+        </div>
+      </div>
+
+      <div class="checkout-box">
+        <div id="self-custody-warning" class="warning-banner">
+          <strong>Self-Custody Base Mainnet Notice:</strong> Send Base USDC (<code>0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913</code>, Chain ID <code>8453</code> / <code>0x2105</code>) directly from a wallet whose signing key you control to treasury <code>0x32eceaC45DBED9E555dAb80346aBd4Ab9C676206</code>. Do not send from centralized exchange hot wallets (an EIP-191 ownership signature is required). Requires 2 Base confirmations.
+        </div>
+
+        <div class="toolbar">
+          <label class="field-label" for="tier-select" style="margin: 0;">Selected Tier:</label>
+          <select id="tier-select" class="text-input" style="max-width: 260px;">
+            <option value="solo" selected>Pro Solo Funded-Prep — 29 USDC</option>
+            <option value="team">Pro Team Coaching Desk — 99 USDC</option>
+          </select>
+          <button id="wallet-pay-btn" class="btn btn-primary" type="button" hidden>
+            Pay 29 USDC with Base Wallet
+          </button>
+        </div>
+
+        <div style="margin-top: 14px;">
+          <label class="field-label" for="manual-tx-input">Already sent Base USDC? Paste transaction hash to challenge &amp; claim:</label>
+          <div class="toolbar">
+            <input id="manual-tx-input" class="text-input" style="flex: 1 1 260px;" type="text" placeholder="0x..." autocomplete="off">
+            <button id="manual-verify-btn" class="btn" type="button">Sign &amp; Verify Claim</button>
+          </div>
+        </div>
+
+        <div id="checkout-status" class="status-box" hidden></div>
+
+        <div id="checkout-result" class="status-box ok" hidden>
+          <div><strong>Entitlement Issued</strong></div>
+          <div style="margin-top: 6px;">CLI Activation Command:</div>
+          <pre id="activation-cmd" class="code-block"></pre>
+          <div>Signed License Token:</div>
+          <pre id="license-token-text" class="code-block"></pre>
+          <a id="download-bundle-link" class="btn btn-primary" href="#" download="evalshield-copilot-entitlement.json">Download Entitlement Bundle</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div>evalshield-copilot — MIT Open-Core Prop-Firm Risk Co-Pilot</div>
+      <div>Support: <a href="mailto:apexhive.hq@proton.me">apexhive.hq@proton.me</a></div>
+    </div>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
