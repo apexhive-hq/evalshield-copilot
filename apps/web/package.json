@@ -1,7 +1,7 @@
 {
   "name": "@evalshield/web",
   "version": "3.0.2",
-  "description": "Local read-only browser dashboard and static UI assets for evalshield-copilot (Solo-Free $0 full 300-pt edition).",
+  "description": "Local read-only browser dashboard and static UI assets for evalshield-copilot (Solo-Free $0 rule-based risk edition).",
   "license": "SEE LICENSE IN ../../LICENSE",
   "private": true,
   "type": "module",

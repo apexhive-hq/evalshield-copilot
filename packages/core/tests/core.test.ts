@@ -5,9 +5,11 @@ import {
   applyEodSessionRollover,
   buildFifteenSecondBrief,
   computeDrawdownState,
+  createPinnedLookup,
   evaluatePortfolioGuard,
   evaluateRiskCheck,
   evaluateSessionQuality,
+  fetchPinnedHttpsText,
   getContractSpec,
   getMaxAllowedAccounts,
   isGlobexClosedUtc,
@@ -15,6 +17,7 @@ import {
   normalizeSymbolRoot,
   parseRssAtomHeadlineBrief,
   PROP_FIRM_PRESETS,
+  resolveAndValidateSafeConnectorUrl,
   TOKEN_PREFIX,
   validateSafeConnectorUrl,
   verifyEvalShieldLicenseToken,
@@ -95,6 +98,12 @@ test('EOD vs Intraday trailing drawdown floor & Apex safety-lock cap', () => {
   assert.equal(intraState.effectiveHwm, 51_200);
   assert.equal(intraState.floor, 48_700);
   assert.equal(intraState.ddBuffer, 2_500);
+
+  // Non-finite account metrics throw instead of falling through to GREEN
+  assert.throws(() => computeDrawdownState(makeBaseAccount({ realizedBalance: Number.NaN })), /finite/);
+  assert.throws(() => computeDrawdownState(makeBaseAccount({ openUnrealizedPnl: Number.POSITIVE_INFINITY })), /finite/);
+  assert.throws(() => computeDrawdownState(makeBaseAccount({ hwm: Number.NaN })), /finite/);
+  assert.throws(() => computeDrawdownState(makeBaseAccount({ dayRealizedPnl: Number.NaN })), /finite/);
 });
 
 test('ATR stop floor, DLL soft lock, maxContractsAllowed & micro fallback', () => {
@@ -392,11 +401,79 @@ test('v3.0 Multi-Account Portfolio Guard detects cross-account anti-hedging, ES+
   assert.ok(correlatedAndSkewed.alerts.some((a) => a.code === 'COPIER_ORPHAN_OR_SKEW_DETECTED'));
 });
 
-test('v3.0 SSRF Policy Guard, RSS 3-item cap & Mocked Gamma/Hyperliquid 15s Brief', async () => {
+test('v3.0 SSRF Policy Guard, IPv4-mapped IPv6 / DNS rebinding protection, SOL-PERP spec, RSS 3-item cap & Mocked Brief', async () => {
+  assert.equal(getContractSpec('SOL-PERP').symbol, 'SOL-PERP');
+  assert.equal(getContractSpec('SOL-PERP').tickValue, 0.01);
+
   assert.throws(() => validateSafeConnectorUrl('https://x.com/MacroAlf'), /X_SCRAPING_DISALLOWED/);
   assert.throws(() => validateSafeConnectorUrl('https://api.binance.com/api/v3/ticker'), /GEO_RESTRICTED/);
   assert.throws(() => validateSafeConnectorUrl('https://127.0.0.1/feed.xml'), /SSRF_BLOCKED/);
+  assert.throws(() => validateSafeConnectorUrl('https://[::ffff:127.0.0.1]/feed.xml'), /SSRF_BLOCKED/);
+  assert.throws(() => validateSafeConnectorUrl('https://[::ffff:7f00:1]/feed.xml'), /SSRF_BLOCKED/);
+  assert.throws(() => validateSafeConnectorUrl('https://[::ffff:169.254.169.254]/latest'), /SSRF_BLOCKED/);
+  assert.throws(() => validateSafeConnectorUrl('https://[::]/feed.xml'), /SSRF_BLOCKED/);
+  assert.throws(() => validateSafeConnectorUrl('https://[fc00::1]/feed.xml'), /SSRF_BLOCKED/);
+  assert.throws(() => validateSafeConnectorUrl('https://[fe80::1]/feed.xml'), /SSRF_BLOCKED/);
+  assert.throws(() => validateSafeConnectorUrl('https://100.64.0.1/feed.xml'), /SSRF_BLOCKED/);
+  assert.throws(() => validateSafeConnectorUrl('https://0.0.0.0/feed.xml'), /SSRF_BLOCKED/);
+  assert.throws(() => validateSafeConnectorUrl('https://metadata.google.internal./computeMetadata'), /SSRF_BLOCKED/);
+  assert.throws(() => validateSafeConnectorUrl('https://localhost./feed.xml'), /SSRF_BLOCKED/);
+  assert.throws(() => validateSafeConnectorUrl('https://x.com./MacroAlf'), /X_SCRAPING_DISALLOWED/);
   assert.doesNotThrow(() => validateSafeConnectorUrl('https://feeds.reuters.com/reuters/businessNews'));
+
+  // Regression: createPinnedLookup supports Node 24 { all: true } array callback AND scalar callback
+  const pinned = createPinnedLookup([{ address: '93.184.216.34', family: 4 }]);
+  await new Promise<void>((resolve, reject) => {
+    pinned('example.com', { all: true }, (err, result) => {
+      try {
+        assert.equal(err, null);
+        assert.ok(Array.isArray(result));
+        assert.deepEqual(result, [{ address: '93.184.216.34', family: 4 }]);
+        resolve();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    pinned('example.com', 4, (err, addr, fam) => {
+      try {
+        assert.equal(err, null);
+        assert.equal(addr, '93.184.216.34');
+        assert.equal(fam, 4);
+        resolve();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
+  assert.equal(typeof fetchPinnedHttpsText, 'function');
+
+  // DNS resolution SSRF block (e.g., domain resolving to ::ffff:127.0.0.1 or :: or 169.254.169.254)
+  await assert.rejects(
+    () =>
+      resolveAndValidateSafeConnectorUrl('https://rebind.evil.example/rss.xml', {
+        lookupFn: async () => [{ address: '::ffff:127.0.0.1', family: 6 }]
+      }),
+    /SSRF_BLOCKED_DNS/
+  );
+  await assert.rejects(
+    () =>
+      resolveAndValidateSafeConnectorUrl('https://rebind2.evil.example/rss.xml', {
+        lookupFn: async () => [{ address: '::', family: 6 }]
+      }),
+    /SSRF_BLOCKED_DNS/
+  );
+  await assert.rejects(
+    () =>
+      resolveAndValidateSafeConnectorUrl('https://rebind3.evil.example/rss.xml', {
+        lookupFn: async () => [
+          { address: '93.184.216.34', family: 4 },
+          { address: '169.254.169.254', family: 4 }
+        ]
+      }),
+    /SSRF_BLOCKED_DNS/
+  );
 
   const mockRss = `<?xml version="1.0"?><rss><channel>
     <item><title>FOMC Minutes Show Caution</title><link>https://example.com/1</link></item>

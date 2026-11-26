@@ -18,13 +18,37 @@ function createMemoryNamespace() {
             },
             async put(k, v) {
               mem.set(k, structuredClone(v));
+            },
+            async delete(keys) {
+              if (Array.isArray(keys)) {
+                let count = 0;
+                for (const k of keys) {
+                  if (mem.delete(k)) count += 1;
+                }
+                return count;
+              }
+              return mem.delete(keys);
+            },
+            async list(opts) {
+              const prefix = opts?.prefix ?? '';
+              const limit = opts?.limit ?? 1000;
+              const out = new Map();
+              for (const [k, v] of mem.entries()) {
+                if (k.startsWith(prefix)) {
+                  out.set(k, structuredClone(v));
+                  if (out.size >= limit) break;
+                }
+              }
+              return out;
             }
           }
         });
         map.set(id, {
           fetch(input, init) {
             return instance.fetch(input instanceof Request ? input : new Request(input, init));
-          }
+          },
+          __instance: instance,
+          __mem: mem
         });
       }
       return map.get(id);
@@ -117,4 +141,95 @@ test('BYO TradingView webhook authenticates, deduplicates, suppresses red-zone a
   await worker.scheduled({ scheduledTime: Date.UTC(2026, 2, 18, 13, 0, 0) }, env);
   assert.equal(sentMessages.length, 2); // 1 TV alert + 1 Cron Hyperliquid alert
   assert.ok(sentMessages[1].embeds[0].title.includes('Extreme Funding Alert'));
+});
+
+test('BYO TradingView webhook fails closed (503) without secret, enforces 32KB cap (413), and prunes expired seen:* keys', async () => {
+  const ns = createMemoryNamespace();
+  const envNoSecret = {
+    BYO_STATE: ns
+  };
+
+  // Fail-closed 503 SERVICE_UNCONFIGURED when TRADINGVIEW_WEBHOOK_SECRET is unset
+  const res503 = await worker.fetch(
+    new Request('https://byo.local/webhook/tradingview', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'tv-unconfigured', symbol: 'ES' })
+    }),
+    envNoSecret
+  );
+  assert.equal(res503.status, 503);
+  assert.equal((await res503.json()).error, 'SERVICE_UNCONFIGURED');
+
+  // 413 PAYLOAD_TOO_LARGE when > 32KB
+  const envWithSecret = {
+    BYO_STATE: ns,
+    TRADINGVIEW_WEBHOOK_SECRET: 'byo-tv-secret-2026'
+  };
+  const res413 = await worker.fetch(
+    new Request('https://byo.local/webhook/tradingview', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-webhook-secret': 'byo-tv-secret-2026' },
+      body: JSON.stringify({ id: 'tv-big', pad: 'x'.repeat(40_000) })
+    }),
+    envWithSecret
+  );
+  assert.equal(res413.status, 413);
+  assert.equal((await res413.json()).error, 'PAYLOAD_TOO_LARGE');
+
+  // Expired seen:* key cleanup via BYOStateDO.pruneExpiredKeys / alarm()
+  const stub = ns.get(ns.idFromName('global'));
+  await stub.__mem.set('seen:stale-key', { ts: Date.now() - 4_000_000, expiresAt: Date.now() - 1_000 });
+  await stub.__instance.alarm();
+  assert.equal(stub.__mem.has('seen:stale-key'), false);
+
+  // Streaming chunked request WITHOUT Content-Length exceeding 32KB aborts with 413 PAYLOAD_TOO_LARGE
+  let chunksPulled = 0;
+  const streamedReq = new Request('https://byo.local/webhook/tradingview', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-webhook-secret': 'byo-tv-secret-2026' },
+    duplex: 'half',
+    body: new ReadableStream({
+      pull(controller) {
+        chunksPulled += 1;
+        if (chunksPulled <= 10) {
+          controller.enqueue(new Uint8Array(8192).fill(0x78));
+        } else {
+          controller.close();
+        }
+      }
+    })
+  });
+  const resChunk413 = await worker.fetch(streamedReq, envWithSecret);
+  assert.equal(resChunk413.status, 413);
+  assert.equal((await resChunk413.json()).error, 'PAYLOAD_TOO_LARGE');
+  assert.ok(chunksPulled <= 6, `Expected early stream cancellation, pulled ${chunksPulled} chunks`);
+
+  // Non-object JSON bodies ("null", "[1,2]", "123") return 400 INVALID_JSON (not 500)
+  for (const nonObjBody of ['null', '[1,2]', '"hello"', '123']) {
+    const nonObjRes = await worker.fetch(
+      new Request('https://byo.local/webhook/tradingview', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-webhook-secret': 'byo-tv-secret-2026' },
+        body: nonObjBody
+      }),
+      envWithSecret
+    );
+    assert.equal(nonObjRes.status, 400);
+    assert.equal((await nonObjRes.json()).error, 'INVALID_JSON');
+  }
+
+  // Non-finite remainingBufferUsd ("N/A", "", null) rejected cleanly with 400 INVALID_PARAMS (no NaN fail-open!)
+  for (const badBuf of ['N/A', '', null]) {
+    const badBufRes = await worker.fetch(
+      new Request('https://byo.local/webhook/tradingview', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-webhook-secret': 'byo-tv-secret-2026' },
+        body: JSON.stringify({ id: 'tv-bad-buf', symbol: 'ES', remainingBufferUsd: badBuf })
+      }),
+      envWithSecret
+    );
+    assert.equal(badBufRes.status, 400);
+    assert.equal((await badBufRes.json()).error, 'INVALID_PARAMS');
+  }
 });

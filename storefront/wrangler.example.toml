@@ -1,0 +1,41 @@
+name = "evalshield-copilot"
+main = "src/index.ts"
+compatibility_date = "2025-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[kv_namespaces]]
+binding = "LICENSES_KV"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+
+[[kv_namespaces]]
+binding = "GLOBAL_CLAIMED_TX_KV"
+id = "REPLACE_WITH_YOUR_GLOBAL_CLAIMED_TX_KV_NAMESPACE_ID"
+
+[[durable_objects.bindings]]
+name = "TX_CLAIM_LOCK"
+class_name = "TxClaimLockDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TxClaimLockDO"]
+
+[vars]
+BRAND_NAME = "ApexHive Labs"
+PRODUCT_ID = "evalshield-copilot"
+TOKEN_PREFIX = "EVALSHIELD-PRO-v1."
+LICENSE_SIGNING_PUBLIC_SPKI_B64 = "REPLACE_WITH_ED25519_PUBLIC_SPKI_B64"
+PAY_TO_EVM_ADDRESS = "REPLACE_WITH_BASE_USDC_TREASURY_ADDRESS"
+BASE_USDC_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+BASE_CHAIN_ID = "8453"
+BASE_RPC_URL = "https://mainnet.base.org"
+BASE_RPC_URLS = "https://mainnet.base.org,https://base-rpc.publicnode.com,https://1rpc.io/base"
+TEAM_PRICE_USDC_ATOMIC = "99000000"
+ENTERPRISE_PRICE_USDC_ATOMIC = "499000000"
+MIN_CONFIRMATIONS = "2"
+CHALLENGE_TTL_SECONDS = "300"
+DOWNLOAD_TTL_SECONDS = "600"
+ALLOWED_ORIGINS = "https://your-evalshield-worker.workers.dev"

@@ -404,3 +404,84 @@ test('v3.0 pretrade audits, SSRF-safe BYO connectors, custom assets, 15s brief, 
     db.close();
   }
 });
+
+test('HTTP server optional localAuthToken enforces Bearer/header auth on /api/* while keeping /api/health open', async () => {
+  const db = new EvalShieldDb(':memory:');
+  db.seedDefaultAccountIfEmpty();
+  const server = createEvalShieldHttpServer({ db, localAuthToken: 'local-secret-token-xyz' });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const { port } = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  try {
+    const h = await fetch(`${baseUrl}/api/health`);
+    assert.equal(h.status, 200);
+
+    const unauth = await fetch(`${baseUrl}/api/accounts`);
+    assert.equal(unauth.status, 401);
+    assert.equal(((await unauth.json()) as { error: string }).error, 'LOCAL_AUTH_REQUIRED');
+
+    const authed = await fetch(`${baseUrl}/api/accounts`, {
+      headers: { authorization: 'Bearer local-secret-token-xyz' }
+    });
+    assert.equal(authed.status, 200);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    db.close();
+  }
+});
+
+test('Webhook fill CSV quoting blocks column/row injection and export.csv sanitizes Content-Disposition', async () => {
+  const webhookSecret = 'webhook-csv-safety-secret-32bytes';
+  const db = new EvalShieldDb(':memory:');
+  const acc = db.seedDefaultAccountIfEmpty();
+  const server = createEvalShieldHttpServer({ db, webhookSecret });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const { port } = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  try {
+    // Newline in execId rejected cleanly (400)
+    const nlPayload = JSON.stringify({
+      accountId: acc.id,
+      eventType: 'fill',
+      symbol: 'MES',
+      side: 'BUY',
+      qty: 1,
+      price: 5000,
+      execId: 'EX1\nF99,O99,2026-03-18,2026-03-18,Sell,99,9999,ES,0'
+    });
+    const nlSig = createHmac('sha256', webhookSecret).update(nlPayload).digest('hex');
+    const nlRes = await fetch(`${baseUrl}/api/ingest/webhook`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-webhook-secret': nlSig },
+      body: nlPayload
+    });
+    assert.equal(nlRes.status, 400);
+
+    // Comma/quote inside execId safely CSV-quoted without splitting columns
+    const commaPayload = JSON.stringify({
+      accountId: acc.id,
+      eventType: 'fill',
+      symbol: 'MES',
+      side: 'BUY',
+      qty: 1,
+      price: 5000,
+      execId: 'EX,"1",2'
+    });
+    const commaSig = createHmac('sha256', webhookSecret).update(commaPayload).digest('hex');
+    const commaRes = await fetch(`${baseUrl}/api/ingest/webhook`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-webhook-secret': commaSig },
+      body: commaPayload
+    });
+    assert.equal(commaRes.status, 200);
+
+    // export.csv sanitizes filename and returns nosniff
+    const exp = await fetch(`${baseUrl}/api/journal/export.csv?accountId=${encodeURIComponent(acc.id)}`);
+    assert.equal(exp.status, 200);
+    assert.equal(exp.headers.get('x-content-type-options'), 'nosniff');
+    assert.match(exp.headers.get('content-disposition') ?? '', /^attachment; filename="evalshield-[A-Za-z0-9_-]+\.csv"$/);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    db.close();
+  }
+});

@@ -55,6 +55,10 @@ test('apps/web static dashboard integrates live SQLite journal, risk shield, CSV
     const htmlRes = await fetch(`${baseUrl}/`);
     assert.equal(htmlRes.status, 200);
     assert.ok((htmlRes.headers.get('content-type') || '').includes('charset=utf-8'));
+    assert.equal(htmlRes.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(htmlRes.headers.get('x-frame-options'), 'DENY');
+    assert.equal(htmlRes.headers.get('referrer-policy'), 'no-referrer');
+    assert.ok((htmlRes.headers.get('content-security-policy') || '').includes("script-src 'self'"));
 
     browser = await chromium.launch({ headless: true });
 
@@ -71,6 +75,8 @@ test('apps/web static dashboard integrates live SQLite journal, risk shield, CSV
       await page.goto(baseUrl, { waitUntil: 'networkidle' });
       assert.ok((await page.locator('#badge-routing').innerText()).includes('Disabled'));
       assert.equal(await page.locator('#mc-hist-svg rect').count(), 5);
+      assert.equal(await page.locator('#risk-symbol option[value="SOL-PERP"]').count(), 1);
+      assert.ok((await page.locator('#mc-run-btn').innerText()).includes('25,000'));
 
       if (vp.tag === 'desktop') {
         // Solo-Free Local Core allows unlimited local accounts & checks ($0 forever)
@@ -92,7 +98,7 @@ test('apps/web static dashboard integrates live SQLite journal, risk shield, CSV
         await page.fill('#license-token-input', token);
         await page.click('#activate-license-btn');
         await page.waitForSelector('#license-status.ok:not([hidden])');
-        assert.ok((await page.locator('#badge-license').innerText()).includes('Pro Solo'));
+        assert.ok((await page.locator('#badge-license').innerText()).includes('Solo ($0 Local Verified)'));
 
         // Evaluate risk check + Cross-market XAUUSD spread + Pre-Trade Thesis + CSV FIFO import
         await page.selectOption('#risk-symbol', 'XAUUSD');
@@ -118,6 +124,9 @@ test('apps/web static dashboard integrates live SQLite journal, risk shield, CSV
         await page.waitForSelector('#journal-status.ok:not([hidden])');
         assert.equal((await page.locator('#sc-trades').innerText()).trim(), '1');
         assert.equal(await page.locator('#trades-tbody tr').count(), 1);
+        const rowCells = await page.locator('#trades-tbody tr').first().locator('td').allInnerTexts();
+        assert.equal(rowCells[0], 'ES');
+        assert.equal(rowCells[1], 'LONG');
       }
 
       assert.equal(

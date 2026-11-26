@@ -18,6 +18,12 @@ function assertPositiveFinite(value: number, name: string): void {
   }
 }
 
+function assertFinite(value: number, name: string): void {
+  if (!Number.isFinite(value)) {
+    throw new Error(`${name} must be a finite number`);
+  }
+}
+
 export function computeDrawdownState(account: AccountRiskProfile): {
   effectiveHwm: number;
   floor: number;
@@ -31,6 +37,12 @@ export function computeDrawdownState(account: AccountRiskProfile): {
 } {
   assertPositiveFinite(account.startingBalance, 'startingBalance');
   assertPositiveFinite(account.maxDrawdown, 'maxDrawdown');
+  assertFinite(account.realizedBalance, 'realizedBalance');
+  assertFinite(account.openUnrealizedPnl, 'openUnrealizedPnl');
+  assertFinite(account.hwm, 'hwm');
+  assertFinite(account.dayRealizedPnl, 'dayRealizedPnl');
+  if (account.alphaSoftDll !== undefined) assertFinite(account.alphaSoftDll, 'alphaSoftDll');
+  if (account.safetyReserve !== undefined) assertFinite(account.safetyReserve, 'safetyReserve');
 
   const currentEquity = account.realizedBalance + account.openUnrealizedPnl;
   let effectiveHwm: number;

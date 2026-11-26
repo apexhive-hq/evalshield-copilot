@@ -13,8 +13,10 @@ import {
   evaluateRiskCheck,
   fetchSafeRssBrief,
   PROP_FIRM_PRESETS,
+  resolveAndValidateSafeConnectorUrl,
   TOKEN_PREFIX,
-  validateSafeConnectorUrl
+  validateSafeConnectorUrl,
+  type LookupFn
 } from '@evalshield/core';
 import { DomainError, EvalShieldDb } from './db.js';
 
@@ -41,9 +43,11 @@ export interface ServerOptions {
   db: EvalShieldDb;
   publicDirs?: string[];
   webhookSecret?: string;
+  localAuthToken?: string;
   publicKeySpkiB64?: string;
   allowedOrigins?: string[];
   fetchFn?: typeof fetch;
+  lookupFn?: LookupFn;
   allowLoopbackConnectorsForTest?: boolean;
 }
 
@@ -106,8 +110,11 @@ function sendJson(
   const headers: Record<string, string> = {
     'content-type': 'application/json; charset=utf-8',
     vary: 'Origin',
+    'x-frame-options': 'DENY',
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'no-referrer',
     'access-control-allow-methods': 'GET, POST, PATCH, DELETE, OPTIONS',
-    'access-control-allow-headers': 'Content-Type, X-EvalShield-License, X-Webhook-Secret'
+    'access-control-allow-headers': 'Authorization, Content-Type, X-EvalShield-License, X-EvalShield-Local-Token, X-Webhook-Secret'
   };
   if (allowOriginHeader) {
     headers['access-control-allow-origin'] = allowOriginHeader;
@@ -117,6 +124,19 @@ function sendJson(
   }
   res.writeHead(status, headers);
   res.end(JSON.stringify(body));
+}
+
+function verifyLocalAuthToken(req: IncomingMessage, expectedToken: string): boolean {
+  const auth = typeof req.headers.authorization === 'string' ? req.headers.authorization.trim() : '';
+  const bearer = /^Bearer\s+(.+)$/i.exec(auth)?.[1]?.trim() ?? '';
+  const hdrToken = typeof req.headers['x-evalshield-local-token'] === 'string'
+    ? req.headers['x-evalshield-local-token'].trim()
+    : '';
+  const candidate = bearer || hdrToken;
+  if (!candidate) return false;
+  const a = Buffer.from(candidate, 'utf8');
+  const b = Buffer.from(expectedToken, 'utf8');
+  return a.byteLength === b.byteLength && timingSafeEqual(a, b);
 }
 
 function readRawBody(req: IncomingMessage, maxBytes: number): Promise<Buffer> {
@@ -276,13 +296,13 @@ const CsvImportSchema = z.object({
 const WebhookSchema = z.object({
   accountId: z.string().min(1),
   eventType: z.enum(['fill', 'atr_bar']),
-  symbol: z.string().min(1).max(24),
+  symbol: z.string().min(1).max(24).refine((s) => !/[\r\n]/.test(s), 'Newlines are disallowed in symbol'),
   side: z.enum(['BUY', 'SELL']).optional(),
   qty: z.number().positive().optional(),
   price: z.number().positive().optional(),
   commission: z.number().min(0).optional(),
-  execId: z.string().min(1).optional(),
-  tsUtc: z.string().min(1).optional(),
+  execId: z.string().min(1).max(120).refine((s) => !/[\r\n]/.test(s), 'Newlines are disallowed in execId').optional(),
+  tsUtc: z.string().min(1).refine((s) => !/[\r\n]/.test(s), 'Newlines are disallowed in tsUtc').optional(),
   atr14: z.number().positive().optional(),
   atr20dMedian: z.number().positive().optional()
 });
@@ -345,7 +365,7 @@ export function createEvalShieldHttpServer(options: ServerOptions): http.Server 
     process.env.EVALSHIELD_PUBLIC_KEY ||
     DEFAULT_EVALSHIELD_PUBLIC_KEY_SPKI_B64;
 
-  return http.createServer(async (req, res) => {
+  const server = http.createServer(async (req, res) => {
     const allowedOriginSet = resolveAllowedOriginSet(options.allowedOrigins);
     const cors = evaluateRequestCors(req, allowedOriginSet);
     const corsOrigin = cors.allowOriginHeader;
@@ -369,7 +389,7 @@ export function createEvalShieldHttpServer(options: ServerOptions): http.Server 
         const optHeaders: Record<string, string> = {
           vary: 'Origin',
           'access-control-allow-methods': 'GET, POST, PATCH, DELETE, OPTIONS',
-          'access-control-allow-headers': 'Content-Type, X-EvalShield-License, X-Webhook-Secret'
+          'access-control-allow-headers': 'Authorization, Content-Type, X-EvalShield-License, X-EvalShield-Local-Token, X-Webhook-Secret'
         };
         if (corsOrigin) {
           optHeaders['access-control-allow-origin'] = corsOrigin;
@@ -382,14 +402,40 @@ export function createEvalShieldHttpServer(options: ServerOptions): http.Server 
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       const path = url.pathname;
 
+      const localToken = options.localAuthToken ?? process.env.EVALSHIELD_LOCAL_TOKEN;
+      if (localToken && path.startsWith('/api/') && path !== '/api/health' && path !== '/api/ingest/webhook') {
+        if (!verifyLocalAuthToken(req, localToken)) {
+          sendJson(
+            res,
+            401,
+            {
+              ok: false,
+              error: 'LOCAL_AUTH_REQUIRED',
+              message: 'Valid Authorization: Bearer <token> or X-EvalShield-Local-Token is required.'
+            },
+            corsOrigin
+          );
+          return;
+        }
+      }
+
+const LOCAL_STATIC_CSP =
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'";
+
       if (method === 'GET' && STATIC_ALLOWLIST[path]) {
         const entry = STATIC_ALLOWLIST[path]!;
         const bytes = resolveStaticAsset(entry.file, publicDirs);
         if (bytes) {
           const headers: Record<string, string> = {
             'content-type': entry.contentType,
+            'x-content-type-options': 'nosniff',
+            'x-frame-options': 'DENY',
+            'referrer-policy': 'no-referrer',
             vary: 'Origin'
           };
+          if (entry.contentType.startsWith('text/html')) {
+            headers['content-security-policy'] = LOCAL_STATIC_CSP;
+          }
           if (corsOrigin) {
             headers['access-control-allow-origin'] = corsOrigin;
           }
@@ -400,6 +446,10 @@ export function createEvalShieldHttpServer(options: ServerOptions): http.Server 
         if (path === '/' || path === '/index.html') {
           const headers: Record<string, string> = {
             'content-type': 'text/html; charset=utf-8',
+            'content-security-policy': LOCAL_STATIC_CSP,
+            'x-content-type-options': 'nosniff',
+            'x-frame-options': 'DENY',
+            'referrer-policy': 'no-referrer',
             vary: 'Origin'
           };
           if (corsOrigin) {
@@ -422,6 +472,7 @@ export function createEvalShieldHttpServer(options: ServerOptions): http.Server 
           {
             ok: true,
             service: 'evalshield-copilot',
+            version: '3.0.2',
             dbMode: 'node:sqlite-wal',
             orderRoutingEnabled: false
           },
@@ -438,13 +489,14 @@ export function createEvalShieldHttpServer(options: ServerOptions): http.Server 
             ok: true,
             brand: 'ApexHive Labs',
             productId: 'evalshield-copilot',
+            version: '3.0.2',
             tokenPrefix: TOKEN_PREFIX,
             licensePublicKeySpkiB64: publicKeySpkiB64,
             supportEmail: 'apexhive.hq@proton.me',
             mode: 'sqlite-server',
             orderRoutingEnabled: false,
             dualLicenseModel: {
-              solo: '0 USDC (Full 300-pt Local Engine)',
+              solo: '0 USDC (Full Rule-Based Local Engine)',
               teamEarlyBird: '99 USDC (2-99 seats)',
               enterpriseEarlyBird: '499 USDC (100+ seats)'
             },
@@ -570,6 +622,20 @@ export function createEvalShieldHttpServer(options: ServerOptions): http.Server 
 
       if (method === 'POST' && path === '/api/connectors') {
         const body = parseJsonBuffer(await readRawBody(req, MAX_JSON_BYTES), CreateConnectorSchema);
+        if (body.kind === 'rss' && (!options.fetchFn || options.lookupFn)) {
+          try {
+            await resolveAndValidateSafeConnectorUrl(body.target, {
+              allowLoopbackForTest: options.allowLoopbackConnectorsForTest,
+              lookupFn: options.lookupFn
+            });
+          } catch (err) {
+            throw new DomainError(
+              400,
+              'DISALLOWED_CONNECTOR_URL',
+              err instanceof Error ? err.message : String(err)
+            );
+          }
+        }
         const connector = db.createConnector(body, {
           allowLoopbackForTest: options.allowLoopbackConnectorsForTest
         });
@@ -588,9 +654,16 @@ export function createEvalShieldHttpServer(options: ServerOptions): http.Server 
         const body = parseJsonBuffer(await readRawBody(req, MAX_JSON_BYTES), TestConnectorSchema);
         if (body.kind === 'rss') {
           try {
-            validateSafeConnectorUrl(body.target, {
-              allowLoopbackForTest: options.allowLoopbackConnectorsForTest
-            });
+            if (!options.fetchFn || options.lookupFn) {
+              await resolveAndValidateSafeConnectorUrl(body.target, {
+                allowLoopbackForTest: options.allowLoopbackConnectorsForTest,
+                lookupFn: options.lookupFn
+              });
+            } else {
+              validateSafeConnectorUrl(body.target, {
+                allowLoopbackForTest: options.allowLoopbackConnectorsForTest
+              });
+            }
           } catch (err) {
             throw new DomainError(
               400,
@@ -600,7 +673,11 @@ export function createEvalShieldHttpServer(options: ServerOptions): http.Server 
           }
           const out = await fetchSafeRssBrief(
             [{ url: body.target, label: body.label ?? 'BYO RSS', keywords: body.keywords ?? [] }],
-            { fetchFn: options.fetchFn, allowLoopbackForTest: options.allowLoopbackConnectorsForTest }
+            {
+              fetchFn: options.fetchFn,
+              lookupFn: options.lookupFn,
+              allowLoopbackForTest: options.allowLoopbackConnectorsForTest
+            }
           );
           sendJson(res, 200, { ok: true, ...out }, corsOrigin);
           return;
@@ -625,6 +702,7 @@ export function createEvalShieldHttpServer(options: ServerOptions): http.Server 
           hyperliquidCoins: ['BTC', 'ETH', 'SOL'],
           rssSources,
           fetchFn: options.fetchFn,
+          lookupFn: options.lookupFn,
           allowLoopbackForTest: options.allowLoopbackConnectorsForTest
         });
         sendJson(res, 200, { ok: true, brief }, corsOrigin);
@@ -682,10 +760,13 @@ export function createEvalShieldHttpServer(options: ServerOptions): http.Server 
         if (!accountId) {
           throw new DomainError(404, 'ACCOUNT_NOT_FOUND', 'No account available.');
         }
+        db.getAccount(accountId);
+        const safeAccountId = accountId.replace(/[^A-Za-z0-9_-]/g, '_');
         const csv = db.exportTradesCsv(accountId);
         const exportHeaders: Record<string, string> = {
           'content-type': 'text/csv; charset=utf-8',
-          'content-disposition': `attachment; filename="evalshield-${accountId}.csv"`,
+          'content-disposition': `attachment; filename="evalshield-${safeAccountId}.csv"`,
+          'x-content-type-options': 'nosniff',
           vary: 'Origin'
         };
         if (corsOrigin) {
@@ -737,4 +818,7 @@ export function createEvalShieldHttpServer(options: ServerOptions): http.Server 
       );
     }
   });
+  server.requestTimeout = 30_000;
+  server.headersTimeout = 10_000;
+  return server;
 }

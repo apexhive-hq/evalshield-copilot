@@ -69,7 +69,7 @@ Usage:
   evalshield import --file <csvPath> [--format auto|tradovate-fills|tradovate-perf|nt8-trades|nt8-execs|rithmic|tradingview] [--account id] [--db path] [--json]
   evalshield report [--account id] [--db path] [--json]
   evalshield activate --token <EVALSHIELD-PRO-v1...> [--db path] [--json]
-  evalshield serve [--port 4200] [--host 127.0.0.1] [--db path]
+  evalshield serve [--port 4200] [--host 127.0.0.1] [--token <secret>] [--db path]
 `);
 }
 
@@ -280,7 +280,14 @@ async function main(): Promise<void> {
       db.seedDefaultAccountIfEmpty();
       const host = strFlag(flags, 'host', '127.0.0.1')!;
       const port = numFlag(flags, 'port', 4200)!;
-      const server = createEvalShieldHttpServer({ db });
+      const localAuthToken = strFlag(flags, 'token') ?? process.env.EVALSHIELD_LOCAL_TOKEN;
+      const isLoopback = host === '127.0.0.1' || host === '::1' || host === 'localhost';
+      if (!isLoopback && !localAuthToken && !flags['allow-unauth-remote']) {
+        throw new Error(
+          `Refusing to bind non-loopback host "${host}" without --token / EVALSHIELD_LOCAL_TOKEN.`
+        );
+      }
+      const server = createEvalShieldHttpServer({ db, localAuthToken });
       await new Promise<void>((resolve) => server.listen(port, host, () => resolve()));
       console.log(`EvalShield Co-Pilot local server listening at http://${host}:${port} (read-only, zero order routing)`);
       const shutdown = () => {

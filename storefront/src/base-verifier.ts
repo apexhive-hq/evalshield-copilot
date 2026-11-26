@@ -26,16 +26,35 @@ export function normalizeAddressFromTopic(topic: string): string {
   return `0x${topic.slice(-40).toLowerCase()}`;
 }
 
+export class RpcUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RpcUnavailableError';
+  }
+}
+
 export async function rpcCallSingle<T>(rpcUrl: string, method: string, params: unknown[]): Promise<T> {
-  const res = await fetch(rpcUrl, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-    signal: AbortSignal.timeout(6000)
-  });
-  if (!res.ok) throw new Error(`RPC HTTP ${res.status}`);
-  const json = (await res.json()) as { result?: T; error?: { message?: string } };
-  if (json.error) throw new Error(`RPC error: ${json.error.message ?? 'unknown'}`);
+  let res: Response;
+  try {
+    res = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+      signal: AbortSignal.timeout(6000)
+    });
+  } catch (err) {
+    throw new RpcUnavailableError(err instanceof Error ? err.message : 'RPC fetch error');
+  }
+  if (!res.ok) throw new RpcUnavailableError(`RPC HTTP ${res.status}`);
+  const json = (await res.json()) as { result?: T; error?: { code?: number; message?: string } };
+  if (json.error) {
+    const msg = json.error.message ?? 'unknown';
+    // Treat contract execution reverts as deterministic contract failures, not RPC outages
+    if (json.error.code === 3 || /revert/i.test(msg)) {
+      throw new Error(`RPC revert: ${msg}`);
+    }
+    throw new RpcUnavailableError(`RPC error: ${msg}`);
+  }
   return json.result as T;
 }
 
@@ -45,16 +64,22 @@ export async function rpcCallWithFailover<T>(
   params: unknown[]
 ): Promise<T> {
   let lastError: unknown;
+  let allRpcUnavailable = true;
   for (const url of urls) {
     try {
       return await rpcCallSingle<T>(url, method, params);
     } catch (err) {
       lastError = err;
+      if (!(err instanceof RpcUnavailableError)) {
+        allRpcUnavailable = false;
+      }
     }
   }
-  throw new Error(
-    `All Base RPC endpoints failed: ${lastError instanceof Error ? lastError.message : 'unknown'}`
-  );
+  const message = `All Base RPC endpoints failed: ${lastError instanceof Error ? lastError.message : 'unknown'}`;
+  if (allRpcUnavailable) {
+    throw new RpcUnavailableError(message);
+  }
+  throw new Error(message);
 }
 
 export function sumBaseUsdcTransfers(
@@ -89,24 +114,40 @@ export async function verifySmartWalletOrEoaSignature(input: {
   message: string;
   signature: string;
 }): Promise<boolean> {
+  let transportOutage: RpcUnavailableError | null = null;
   const client = createPublicClient({
     chain: base,
     transport: custom({
       async request({ method, params }) {
-        return rpcCallWithFailover(
-          input.rpcUrls,
-          method,
-          Array.isArray(params) ? params : []
-        );
+        try {
+          return await rpcCallWithFailover(
+            input.rpcUrls,
+            method,
+            Array.isArray(params) ? params : []
+          );
+        } catch (err) {
+          if (err instanceof RpcUnavailableError) {
+            transportOutage = err;
+          }
+          throw err;
+        }
       }
     })
   });
 
-  return client
-    .verifyMessage({
+  try {
+    const ok = await client.verifyMessage({
       address: input.address as `0x${string}`,
       message: input.message,
       signature: input.signature as `0x${string}`
-    })
-    .catch(() => false);
+    });
+    if (!ok && transportOutage) {
+      throw transportOutage;
+    }
+    return ok;
+  } catch (err) {
+    if (transportOutage) throw transportOutage;
+    if (err instanceof RpcUnavailableError) throw err;
+    return false;
+  }
 }

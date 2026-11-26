@@ -9,15 +9,16 @@
 
   const CME = {
     ES: { tickSize: 0.25, tickValue: 12.5, micro: 'MES', fee: 4.5 },
-    MES: { tickSize: 0.25, tickValue: 1.25, micro: null, fee: 1.2 },
+    MES: { tickSize: 0.25, tickValue: 1.25, micro: null, fee: 1.24 },
     NQ: { tickSize: 0.25, tickValue: 5.0, micro: 'MNQ', fee: 4.5 },
-    MNQ: { tickSize: 0.25, tickValue: 0.5, micro: null, fee: 1.2 },
+    MNQ: { tickSize: 0.25, tickValue: 0.5, micro: null, fee: 1.24 },
     GC: { tickSize: 0.1, tickValue: 10.0, micro: 'MGC', fee: 4.8 },
     MGC: { tickSize: 0.1, tickValue: 1.0, micro: null, fee: 1.4 },
     XAUUSD: { tickSize: 0.01, tickValue: 1.0, micro: null, fee: 7.0 },
     EURUSD: { tickSize: 0.0001, tickValue: 10.0, micro: null, fee: 7.0 },
     'BTC-PERP': { tickSize: 1.0, tickValue: 1.0, micro: null, fee: 9.0 },
     'ETH-PERP': { tickSize: 0.1, tickValue: 0.1, micro: null, fee: 3.0 },
+    'SOL-PERP': { tickSize: 0.01, tickValue: 0.01, micro: null, fee: 0.2 },
     CL: { tickSize: 0.01, tickValue: 10.0, micro: 'MCL', fee: 4.8 },
     MCL: { tickSize: 0.01, tickValue: 1.0, micro: null, fee: 1.4 },
   };
@@ -25,7 +26,7 @@
   const PRESETS = {
     topstep50k: { mode: 'EOD_TRAILING', balance: 50800, hwm: 51200, ddMax: 2000, dll: 1000, dayPnl: -250 },
     apex50k: { mode: 'INTRADAY_TRAILING', balance: 51100, hwm: 51800, ddMax: 2500, dll: 999999, dayPnl: -150 },
-    mffu50k: { mode: 'EOD_TRAILING', balance: 50400, hwm: 50600, ddMax: 2000, dll: 1200, dayPnl: 200 },
+    mffu50k: { mode: 'EOD_TRAILING', balance: 50400, hwm: 50600, ddMax: 2000, dll: 999999, dayPnl: 200 },
     ftmo100k: { mode: 'STATIC', balance: 101200, hwm: 101200, ddMax: 10000, dll: 5000, dayPnl: 400 },
     tradeify50k: { mode: 'EOD_TRAILING', balance: 50900, hwm: 51000, ddMax: 2000, dll: 999999, dayPnl: 300 },
   };
@@ -108,7 +109,7 @@
       return seed / 4294967296;
     };
 
-    const runs = 10000;
+    const runs = 25000;
     let passed = 0;
     let ruined = 0;
     const tradeCounts = [];
@@ -174,53 +175,90 @@
 
   function updateWalletLabel() {
     const tier = TIER_LABEL[$('tier-select').value] ? $('tier-select').value : 'team';
-    $('wallet-pay-btn').textContent = `Pay ${TIER_LABEL[tier]} with Base Wallet`;
+    const hasWallet = typeof window.ethereum !== 'undefined';
+    $('wallet-pay-btn').textContent = hasWallet
+      ? `Pay ${TIER_LABEL[tier]} with Base Wallet`
+      : `Pay ${TIER_LABEL[tier]} (Manual / Safe Instructions)`;
+    if ($('pay-amount-label')) {
+      $('pay-amount-label').textContent = TIER_LABEL[tier];
+    }
   }
 
   function encodeErc20Transfer(to, atomic) {
     return '0xa9059cbb' + to.toLowerCase().replace(/^0x/, '').padStart(64, '0') + BigInt(atomic).toString(16).padStart(64, '0');
   }
 
-  async function verifyAndClaim(txHash, tier) {
+  async function requestChallenge(txHash, tier) {
+    const chRes = await fetch('/api/challenge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ txHash, tier }),
+    });
+    let ch = null;
+    try { ch = await chRes.json(); } catch { ch = null; }
+    if (!chRes.ok || !ch || !ch.nonce) {
+      throw new Error((ch && (ch.message || ch.error)) || `Challenge failed (${chRes.status})`);
+    }
+    if ($('manual-challenge-box')) $('manual-challenge-box').hidden = false;
+    if ($('manual-challenge-msg')) $('manual-challenge-msg').textContent = ch.message;
+    if ($('manual-nonce-input')) $('manual-nonce-input').value = ch.nonce;
+    return ch;
+  }
+
+  async function submitVerify(txHash, nonce, sig, tier) {
+    const statusEl = $('checkout-status');
+    const resultEl = $('checkout-result');
+    const vRes = await fetch('/api/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ txHash, nonce, signature: sig, tier }),
+    });
+    let out = null;
+    try { out = await vRes.json(); } catch { out = null; }
+    if (!vRes.ok || !out || !out.ok) {
+      throw new Error((out && (out.message || out.error)) || `Verification failed (${vRes.status})`);
+    }
+
+    showBox(statusEl, 'Base USDC verified! Entitlement issued.', 'ok');
+    $('activation-cmd').textContent = out.activationCommand;
+    $('license-token-text').textContent = out.licenseToken;
+    $('download-bundle-link').href = out.downloadUrl;
+    stateCert = { tier: out.tier, txHash: out.txHash, payer: out.payer, token: out.licenseToken };
+    rebuildCommercialCert();
+    resultEl.hidden = false;
+  }
+
+  async function verifyAndClaim(txHash, tier, opts) {
     const statusEl = $('checkout-status');
     const resultEl = $('checkout-result');
     resultEl.hidden = true;
     $('license-token-text').textContent = '';
-    showBox(statusEl, 'Requesting EIP-191 ownership challenge...', '');
 
     try {
-      const chRes = await fetch('/api/challenge', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ txHash, tier }),
-      });
-      let ch = null;
-      try { ch = await chRes.json(); } catch { ch = null; }
-      if (!chRes.ok || !ch || !ch.nonce) {
-        throw new Error((ch && (ch.message || ch.error)) || `Challenge failed (${chRes.status})`);
+      const manualNonce = opts?.forceChallenge ? '' : ($('manual-nonce-input')?.value || '').trim();
+      const manualSig = opts?.forceChallenge ? '' : ($('manual-sig-input')?.value || '').trim();
+      if (manualNonce && manualSig) {
+        showBox(statusEl, 'Verifying Base USDC settlement & manual signature...', '');
+        await submitVerify(txHash, manualNonce, manualSig, tier);
+        return;
       }
-      if (!window.ethereum) throw new Error('No Web3 wallet detected for EIP-191 signature.');
+
+      showBox(statusEl, 'Requesting EIP-191 / ERC-1271 ownership challenge...', '');
+      const ch = await requestChallenge(txHash, tier);
+      if (typeof window.ethereum === 'undefined') {
+        showBox(
+          statusEl,
+          'Challenge generated below. Sign the challenge message in your Safe, Ledger, or mobile wallet, paste the 0x signature into "Wallet / Safe Signature", and click Sign & Verify Claim.',
+          'warn'
+        );
+        $('manual-sig-input')?.focus();
+        return;
+      }
+
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
       const sig = await window.ethereum.request({ method: 'personal_sign', params: [ch.message, accounts[0]] });
-
-      const vRes = await fetch('/api/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ txHash, nonce: ch.nonce, signature: sig, tier }),
-      });
-      let out = null;
-      try { out = await vRes.json(); } catch { out = null; }
-      if (!vRes.ok || !out || !out.ok) {
-        throw new Error((out && (out.message || out.error)) || `Verification failed (${vRes.status})`);
-      }
-
-      showBox(statusEl, 'Base USDC verified! Entitlement issued.', 'ok');
-      $('activation-cmd').textContent = out.activationCommand;
-      $('license-token-text').textContent = out.licenseToken;
-      $('download-bundle-link').href = out.downloadUrl;
-      stateCert = { tier: out.tier, txHash: out.txHash, payer: out.payer, token: out.licenseToken };
-      rebuildCommercialCert();
-      resultEl.hidden = false;
+      if ($('manual-sig-input')) $('manual-sig-input').value = sig;
+      await submitVerify(txHash, ch.nonce, sig, tier);
     } catch (err) {
       showBox(statusEl, err?.message || String(err), 'error');
     }
@@ -254,16 +292,34 @@
       $('self-custody-warning').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
   });
-  $('tier-select')?.addEventListener('change', updateWalletLabel);
-
-  if (typeof window.ethereum !== 'undefined') {
-    $('wallet-pay-btn').hidden = false;
-    updateWalletLabel();
+  function clearManualChallengeFields() {
+    if ($('manual-nonce-input')) $('manual-nonce-input').value = '';
+    if ($('manual-sig-input')) $('manual-sig-input').value = '';
+    if ($('manual-challenge-msg')) $('manual-challenge-msg').textContent = '';
+    if ($('manual-challenge-box')) $('manual-challenge-box').hidden = true;
   }
 
+  $('tier-select')?.addEventListener('change', () => {
+    clearManualChallengeFields();
+    updateWalletLabel();
+  });
+  $('manual-tx-input')?.addEventListener('input', clearManualChallengeFields);
+
+  updateWalletLabel();
+
   $('wallet-pay-btn')?.addEventListener('click', async () => {
+    const tier = TIER_ATOMIC[$('tier-select').value] ? $('tier-select').value : 'team';
+    if (typeof window.ethereum === 'undefined') {
+      $('manual-challenge-box').hidden = false;
+      showBox(
+        $('checkout-status'),
+        `No browser wallet detected. Send ${TIER_LABEL[tier]} on Base Mainnet (Chain ID 8453) to ${TREASURY_ADDRESS} (USDC ${BASE_USDC_ADDRESS}), paste your txHash below, click Generate Challenge, and paste your Safe/wallet signature.`,
+        'warn'
+      );
+      $('manual-tx-input')?.focus();
+      return;
+    }
     try {
-      const tier = TIER_ATOMIC[$('tier-select').value] ? $('tier-select').value : 'team';
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
       const chainId = await window.ethereum.request({ method: 'eth_chainId' });
       if (String(chainId).toLowerCase() !== BASE_CHAIN_ID_HEX) {
@@ -275,7 +331,24 @@
         params: [{ from: accounts[0], to: BASE_USDC_ADDRESS, data, value: '0x0' }],
       });
       $('manual-tx-input').value = txHash;
-      await verifyAndClaim(txHash, tier);
+      clearManualChallengeFields();
+      await verifyAndClaim(txHash, tier, { forceChallenge: true });
+    } catch (err) {
+      showBox($('checkout-status'), err?.message || String(err), 'error');
+    }
+  });
+
+  $('manual-challenge-btn')?.addEventListener('click', async () => {
+    const txHash = $('manual-tx-input').value.trim();
+    const tier = TIER_ATOMIC[$('tier-select').value] ? $('tier-select').value : 'team';
+    if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+      showBox($('checkout-status'), 'Enter a valid 66-character 0x transaction hash first.', 'error');
+      return;
+    }
+    try {
+      showBox($('checkout-status'), 'Generating ownership challenge...', '');
+      await requestChallenge(txHash, tier);
+      showBox($('checkout-status'), 'Challenge ready. Sign the message with your Safe/wallet and paste the 0x signature below.', 'ok');
     } catch (err) {
       showBox($('checkout-status'), err?.message || String(err), 'error');
     }

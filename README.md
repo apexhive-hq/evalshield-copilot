@@ -3,14 +3,14 @@
 **Full-Open Cross-Market Prop-Firm Risk Shield, Multi-Account Anti-Hedge Guard, Pre-Trade Thesis Journal & 1-Click Self-Host BYO Cloud Kit** (`0 USDC` Solo Forever · Strictly Read-Only / Human-in-the-Loop).
 
 `evalshield-copilot` uses the **ApexHive Dual Source-Available License (Solo-Free / Commercial Seat Model)**:
-- **Single Traders (`Solo — 1 person`)** get **100% of the 300-point engine free forever (`0 USDC`)** — zero HWID locks, zero 24h trial countdowns, zero feature paywalls, plus a `$0` 1-click Cloudflare self-host Cron template (`deploy/cloudflare-byo/`).
+- **Single Traders (`Solo — 1 person`)** get **100% of the rule-based risk evaluation engine free forever (`0 USDC`)** — zero HWID locks, zero 24h trial countdowns, zero feature paywalls, plus a `$0` 1-click Cloudflare self-host Cron template (`deploy/cloudflare-byo/`).
 - **Teams & Organizations (`2+` seats)** purchase an official commercial Ed25519 certificate verified on Base Mainnet USDC (`Team 2–99 seats: Founder Early-Bird 99 USDC` · `Enterprise 100+ seats: Founder Early-Bird 499 USDC`).
 
 > **Human-in-the-Loop Firewall:** Strictly read-only risk mathematics, pre-trade/post-trade audit journaling, and passive feed monitoring. **Zero X/Twitter scraping, zero automated order placement or copy-trade execution, zero geo-blocked Binance/Bybit dependencies, and concise 15-second cards instead of bloated news walls.**
 
 ---
 
-## Architecture (v3.0.2 — Cross-Market 300-Point Engine)
+## Architecture (v3.0.2 — Cross-Market Rule-Based Risk Engine)
 
 ```text
   Broker CSV Exports (Tradovate / NT8 / Rithmic / TradingView) + Pre-Trade Thesis Audits
@@ -56,7 +56,7 @@
 
 | Tier | Eligibility | Price (One-Time Base USDC) | Scope |
 | --- | --- | --- | --- |
-| **Solo Personal** | `1` natural person | **`0 USDC`** | **Full 300-point engine**, unlimited local accounts, BYO connectors, Portfolio Guard, public 25k sandbox, and `deploy/cloudflare-byo/` self-host kit forever |
+| **Solo Personal** | `1` natural person | **`0 USDC`** | **Full rule-based risk engine**, unlimited local accounts, BYO connectors, Portfolio Guard, public 25k sandbox, and `deploy/cloudflare-byo/` self-host kit forever |
 | **Commercial Team** | `2–99` seats (coaching rooms / trading desks) | **`Founder Early-Bird 99 USDC`** | Official Ed25519 organization license + hosted outbound Telegram/Discord relay endpoint |
 | **Commercial Enterprise** | `100+` seats (prop firms / funds / white-label) | **`Founder Early-Bird 499 USDC`** | Organization-wide unlimited seats, custom SLA support, & commercial redistribution entitlement |
 

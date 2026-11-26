@@ -84,21 +84,105 @@ function verifyHmacOrBearer(rawBody: string, headerVal: string | null, secret: s
   return expected.byteLength === actual.byteLength && timingSafeEqual(expected, actual);
 }
 
+interface DoStorageLike {
+  get<T = unknown>(key: string): Promise<T | undefined>;
+  put<T = unknown>(key: string, val: T): Promise<void>;
+  delete?(keys: string | string[]): Promise<boolean | number>;
+  list?<T = unknown>(options?: { prefix?: string; limit?: number }): Promise<Map<string, T>>;
+  setAlarm?(scheduledTime: number | Date): Promise<void>;
+}
+
+interface SeenRecord {
+  ts: number;
+  expiresAt?: number;
+}
+
+const MAX_BYO_WEBHOOK_BYTES = 32 * 1024;
+
+async function readBoundedText(
+  request: Request,
+  maxBytes: number
+): Promise<{ ok: true; text: string } | { ok: false; status: 413; error: 'PAYLOAD_TOO_LARGE'; message: string }> {
+  const contentLen = request.headers.get('content-length');
+  if (contentLen && /^\d+$/.test(contentLen) && Number(contentLen) > maxBytes) {
+    return {
+      ok: false,
+      status: 413,
+      error: 'PAYLOAD_TOO_LARGE',
+      message: `Webhook body exceeds ${maxBytes} bytes.`
+    };
+  }
+
+  if (!request.body) {
+    return { ok: true, text: '' };
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value || value.byteLength === 0) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => {});
+        return {
+          ok: false,
+          status: 413,
+          error: 'PAYLOAD_TOO_LARGE',
+          message: `Webhook body exceeds ${maxBytes} bytes.`
+        };
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const combined = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { ok: true, text: new TextDecoder().decode(combined) };
+}
+
 export class BYOStateDO {
   private readonly ctx: {
-    storage: {
-      get<T = unknown>(key: string): Promise<T | undefined>;
-      put<T = unknown>(key: string, val: T): Promise<void>;
-    };
+    storage: DoStorageLike;
   };
+  private lastPruneAt = 0;
 
   constructor(ctx: {
-    storage: {
-      get<T = unknown>(key: string): Promise<T | undefined>;
-      put<T = unknown>(key: string, val: T): Promise<void>;
-    };
+    storage: DoStorageLike;
   }) {
     this.ctx = ctx;
+  }
+
+  async pruneExpiredKeys(now = Date.now()): Promise<number> {
+    if (typeof this.ctx.storage.list !== 'function' || typeof this.ctx.storage.delete !== 'function') {
+      return 0;
+    }
+    const entries = await this.ctx.storage.list<SeenRecord>({ prefix: 'seen:', limit: 256 });
+    const expiredKeys: string[] = [];
+    for (const [k, rec] of entries.entries()) {
+      const exp = rec?.expiresAt ?? ((rec?.ts ?? 0) + 3_600_000);
+      if (now >= exp) {
+        expiredKeys.push(k);
+      }
+    }
+    if (expiredKeys.length > 0) {
+      await this.ctx.storage.delete(expiredKeys);
+    }
+    this.lastPruneAt = now;
+    return expiredKeys.length;
+  }
+
+  async alarm(): Promise<void> {
+    await this.pruneExpiredKeys(Date.now());
   }
 
   async fetch(input: Request | string): Promise<Response> {
@@ -108,13 +192,24 @@ export class BYOStateDO {
       const body = (await req.json()) as { key?: string; ttlMs?: number };
       const key = String(body.key ?? '').trim();
       if (!key) return Response.json({ ok: false, duplicate: false }, { status: 400 });
-      const existing = await this.ctx.storage.get<{ ts: number }>(`seen:${key}`);
       const now = Date.now();
       const ttlMs = Math.max(60_000, Number(body.ttlMs ?? 3_600_000));
-      if (existing && now - existing.ts < ttlMs) {
+      const fullKey = `seen:${key}`;
+      const existing = await this.ctx.storage.get<SeenRecord>(fullKey);
+      const existingExp = existing ? (existing.expiresAt ?? existing.ts + ttlMs) : 0;
+      if (existing && now < existingExp) {
         return Response.json({ ok: true, duplicate: true });
       }
-      await this.ctx.storage.put(`seen:${key}`, { ts: now });
+      if (existing && typeof this.ctx.storage.delete === 'function') {
+        await this.ctx.storage.delete(fullKey);
+      }
+      await this.ctx.storage.put(fullKey, { ts: now, expiresAt: now + ttlMs });
+      if (now - this.lastPruneAt >= 60_000) {
+        await this.pruneExpiredKeys(now);
+      }
+      if (typeof this.ctx.storage.setAlarm === 'function') {
+        await this.ctx.storage.setAlarm(now + 3_600_000);
+      }
       return Response.json({ ok: true, duplicate: false });
     }
     return Response.json({ ok: false, error: 'NOT_FOUND' }, { status: 404 });
@@ -250,19 +345,63 @@ export default {
     }
 
     if (request.method === 'POST' && url.pathname === '/webhook/tradingview') {
-      const raw = await request.text();
-      if (env.TRADINGVIEW_WEBHOOK_SECRET) {
-        const hdr = request.headers.get('x-webhook-secret') ?? request.headers.get('authorization');
-        if (!verifyHmacOrBearer(raw, hdr, env.TRADINGVIEW_WEBHOOK_SECRET)) {
-          return Response.json({ ok: false, error: 'UNAUTHORIZED' }, { status: 401 });
-        }
+      const secret = env.TRADINGVIEW_WEBHOOK_SECRET?.trim();
+      if (!secret) {
+        return Response.json(
+          {
+            ok: false,
+            error: 'SERVICE_UNCONFIGURED',
+            message: 'TRADINGVIEW_WEBHOOK_SECRET must be configured before accepting webhook requests.'
+          },
+          { status: 503 }
+        );
       }
 
-      let body: Record<string, unknown>;
+      const readResult = await readBoundedText(request, MAX_BYO_WEBHOOK_BYTES);
+      if (!readResult.ok) {
+        return Response.json(
+          { ok: false, error: readResult.error, message: readResult.message },
+          { status: readResult.status }
+        );
+      }
+      const raw = readResult.text;
+
+      const hdr = request.headers.get('x-webhook-secret') ?? request.headers.get('authorization');
+      if (!verifyHmacOrBearer(raw, hdr, secret)) {
+        return Response.json({ ok: false, error: 'UNAUTHORIZED' }, { status: 401 });
+      }
+
+      let parsedJson: unknown;
       try {
-        body = JSON.parse(raw) as Record<string, unknown>;
+        parsedJson = JSON.parse(raw);
       } catch {
         return Response.json({ ok: false, error: 'INVALID_JSON' }, { status: 400 });
+      }
+      if (typeof parsedJson !== 'object' || parsedJson === null || Array.isArray(parsedJson)) {
+        return Response.json(
+          { ok: false, error: 'INVALID_JSON', message: 'Expected JSON object.' },
+          { status: 400 }
+        );
+      }
+      const body = parsedJson as Record<string, unknown>;
+
+      let remainingBuffer = 999999;
+      if (body.remainingBufferUsd !== undefined) {
+        const rawBufVal = body.remainingBufferUsd;
+        const isEmptyStr = typeof rawBufVal === 'string' && rawBufVal.trim() === '';
+        const numVal =
+          typeof rawBufVal === 'number' || typeof rawBufVal === 'string' ? Number(rawBufVal) : Number.NaN;
+        if (isEmptyStr || !Number.isFinite(numVal)) {
+          return Response.json(
+            {
+              ok: false,
+              error: 'INVALID_PARAMS',
+              message: 'remainingBufferUsd must be a finite number.'
+            },
+            { status: 400 }
+          );
+        }
+        remainingBuffer = numVal;
       }
 
       const eventKey = String(body.id ?? body.alertId ?? `${body.symbol ?? 'SYM'}:${body.side ?? 'ALERT'}:${body.time ?? ''}`).slice(0, 120);
@@ -277,7 +416,6 @@ export default {
         return Response.json({ ok: true, deduplicated: true, orderRoutingEnabled: false });
       }
 
-      const remainingBuffer = Number(body.remainingBufferUsd ?? 999999);
       const inRedZone = Boolean(body.redZoneActive);
       const suppressed = remainingBuffer <= 0 || inRedZone;
       let dispatched = false;

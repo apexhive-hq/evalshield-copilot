@@ -1,9 +1,9 @@
 import { createPrivateKey, sign as nodeEd25519Sign } from 'node:crypto';
 import { Hono } from 'hono';
-import { cors } from 'hono/cors';
 import {
   parseStrictHexBigInt,
   rpcCallWithFailover,
+  RpcUnavailableError,
   sumBaseUsdcTransfers,
   verifySmartWalletOrEoaSignature,
   type RpcReceipt
@@ -17,7 +17,11 @@ import {
   processCloudRelayAlert,
   runServerMonteCarlo
 } from './cloud-pro.ts';
-import { TxClaimLockDO, type Tier } from './tx-lock-do.ts';
+import {
+  TxClaimLockDO,
+  type DurableDownloadGrantRecord,
+  type Tier
+} from './tx-lock-do.ts';
 
 export { TxClaimLockDO };
 
@@ -28,8 +32,8 @@ export interface TxClaimLockNamespace {
 
 export interface Env {
   ASSETS: Fetcher;
-  LICENSES_KV: KVNamespace;
-  GLOBAL_CLAIMED_TX_KV: KVNamespace;
+  LICENSES_KV?: KVNamespace;
+  GLOBAL_CLAIMED_TX_KV?: KVNamespace;
   TX_CLAIM_LOCK?: TxClaimLockNamespace;
   BRAND_NAME: string;
   PRODUCT_ID: string;
@@ -44,9 +48,7 @@ export interface Env {
   MIN_CONFIRMATIONS: string;
   CHALLENGE_TTL_SECONDS: string;
   DOWNLOAD_TTL_SECONDS: string;
-  SOLANA_RECEIVE_ADDRESS: string;
-  BTC_RECEIVE_ADDRESS: string;
-  TRON_RECEIVE_ADDRESS: string;
+  ALLOWED_ORIGINS?: string;
   LICENSE_SIGNING_PRIVATE_JWK?: string;
   LICENSE_SIGNING_PUBLIC_SPKI_B64?: string;
   DOWNLOAD_HMAC_SECRET?: string;
@@ -66,29 +68,12 @@ const DEFAULT_BASE_RPC_URLS = [
 
 const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#080d18"/><path d="M16 4l10 4v7c0 6.2-4.3 11.4-10 13-5.7-1.6-10-6.8-10-13V8l10-4z" fill="none" stroke="#10b981" stroke-width="2.4"/><path d="M11 16l3.5 3.5L21 13" fill="none" stroke="#38bdf8" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
-interface ChallengeRecord {
-  nonce: string;
-  txHash: string;
-  tier: Tier;
-  ts: number;
-  message: string;
-}
-
 interface GlobalClaimRecord {
   scope: string;
   payer: string;
   tier: string;
   txHash: string;
   claimedAt: number;
-}
-
-interface DownloadGrantRecord {
-  txHash: string;
-  payer: string;
-  tier: Tier;
-  remainingDownloads: number;
-  createdAt: number;
-  licenseToken: string;
 }
 
 function parseTier(raw: string | undefined): Tier | null {
@@ -154,12 +139,20 @@ function getBaseRpcUrls(env: Env): string[] {
   return DEFAULT_BASE_RPC_URLS;
 }
 
-async function parseBoundedJsonBody<T = Record<string, unknown>>(
+function parsePositiveInt(raw: string | undefined, fallback: number, min = 1): number {
+  const s = raw?.trim();
+  if (!s || !/^\d+$/.test(s)) return fallback;
+  const n = Number(s);
+  if (!Number.isSafeInteger(n) || n < min) return fallback;
+  return n;
+}
+
+async function readBoundedText(
   request: Request,
-  maxBytes = MAX_JSON_BYTES
+  maxBytes: number
 ): Promise<
-  | { ok: true; data: T }
-  | { ok: false; status: 400 | 413; error: string; message: string }
+  | { ok: true; text: string }
+  | { ok: false; status: 413; error: string; message: string }
 > {
   const contentLen = request.headers.get('content-length');
   if (contentLen && /^\d+$/.test(contentLen) && Number(contentLen) > maxBytes) {
@@ -170,17 +163,52 @@ async function parseBoundedJsonBody<T = Record<string, unknown>>(
       message: `JSON payload exceeds ${maxBytes} bytes.`
     };
   }
-  const rawText = await request.text();
-  if (new TextEncoder().encode(rawText).byteLength > maxBytes) {
-    return {
-      ok: false,
-      status: 413,
-      error: 'PAYLOAD_TOO_LARGE',
-      message: `JSON payload exceeds ${maxBytes} bytes.`
-    };
+  if (!request.body) {
+    return { ok: true, text: '' };
   }
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
   try {
-    const parsed = JSON.parse(rawText);
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value || value.byteLength === 0) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => {});
+        return {
+          ok: false,
+          status: 413,
+          error: 'PAYLOAD_TOO_LARGE',
+          message: `JSON payload exceeds ${maxBytes} bytes.`
+        };
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const combined = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { ok: true, text: new TextDecoder().decode(combined) };
+}
+
+async function parseBoundedJsonBody<T = Record<string, unknown>>(
+  request: Request,
+  maxBytes = MAX_JSON_BYTES
+): Promise<
+  | { ok: true; data: T }
+  | { ok: false; status: 400 | 413; error: string; message: string }
+> {
+  const readRes = await readBoundedText(request, maxBytes);
+  if (!readRes.ok) return readRes;
+  try {
+    const parsed = JSON.parse(readRes.text);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       return { ok: false, status: 400, error: 'INVALID_JSON', message: 'Expected JSON object.' };
     }
@@ -238,6 +266,39 @@ async function signEvalShieldLicense(
   }
 }
 
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self'",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "frame-ancestors 'none'",
+  "form-action 'self'"
+].join('; ');
+
+function parseAllowedOrigins(raw: string | undefined): Set<string> {
+  if (!raw) return new Set();
+  return new Set(
+    raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  );
+}
+
+function isOriginAllowed(origin: string, reqUrl: string, envAllowed: string | undefined): boolean {
+  try {
+    const reqOrigin = new URL(reqUrl).origin;
+    if (origin === reqOrigin) return true;
+  } catch {
+    return false;
+  }
+  return parseAllowedOrigins(envAllowed).has(origin);
+}
+
 const app = new Hono<{ Bindings: Env }>();
 
 app.onError((err, c) => {
@@ -248,19 +309,71 @@ app.onError((err, c) => {
   return c.json({ error: 'INTERNAL_ERROR' }, 500);
 });
 
-const apiCors = cors({
-  origin: '*',
-  allowMethods: ['GET', 'POST', 'OPTIONS'],
-  allowHeaders: ['Authorization', 'Content-Type', 'X-EvalShield-License']
-});
-
-app.use('/api/*', apiCors);
-
 app.use('*', async (c, next) => {
   await next();
   const ct = c.res.headers.get('content-type');
   if (ct && (ct.startsWith('application/json') || ct.startsWith('text/html')) && !/charset=/i.test(ct)) {
     c.res.headers.set('content-type', `${ct}; charset=utf-8`);
+  }
+  c.res.headers.set('Content-Security-Policy', CONTENT_SECURITY_POLICY);
+  c.res.headers.set('X-Frame-Options', 'DENY');
+  c.res.headers.set('X-Content-Type-Options', 'nosniff');
+  c.res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  c.res.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+});
+
+app.use('/api/*', async (c, next) => {
+  const path = new URL(c.req.url).pathname;
+  const origin = c.req.header('origin')?.trim();
+  const method = c.req.method.toUpperCase();
+
+  // Keep /api/health safe minimal for uptime probes
+  if (path === '/api/health') {
+    if (method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type'
+        }
+      });
+    }
+    await next();
+    c.res.headers.set('Access-Control-Allow-Origin', '*');
+    return;
+  }
+
+  const allowed = origin ? isOriginAllowed(origin, c.req.url, c.env.ALLOWED_ORIGINS) : true;
+  if (origin && !allowed && method !== 'GET' && method !== 'HEAD') {
+    return c.json(
+      {
+        ok: false,
+        error: 'ORIGIN_NOT_ALLOWED',
+        message: 'Cross-origin requests require same-origin or ALLOWED_ORIGINS allowlist.'
+      },
+      403
+    );
+  }
+
+  if (method === 'OPTIONS') {
+    const headers: Record<string, string> = {
+      Vary: 'Origin',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-EvalShield-License'
+    };
+    if (origin && allowed) {
+      headers['Access-Control-Allow-Origin'] = origin;
+    }
+    return new Response(null, { status: 204, headers });
+  }
+
+  await next();
+  c.res.headers.set('Vary', 'Origin');
+  if (origin && allowed) {
+    c.res.headers.set('Access-Control-Allow-Origin', origin);
+    c.res.headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    c.res.headers.set('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-EvalShield-License');
   }
 });
 
@@ -294,9 +407,10 @@ app.get('/api/health', (c) => {
       '/api/cloud/presets',
       '/api/cloud/monte-carlo',
       '/api/cloud/brief',
-      '/api/cloud/portfolio-guard',
-      '/api/cloud/relay/alert'
-    ]
+      '/api/cloud/portfolio-guard'
+    ],
+    commercialRelayEndpoints: ['/api/cloud/relay/alert'],
+    relayAuthPolicy: 'dryRun=true public preview; dryRun=false requires Team or Enterprise Bearer license'
   });
 });
 
@@ -308,17 +422,17 @@ app.get('/api/config', (c) => {
     tokenPrefix: c.env.TOKEN_PREFIX || 'EVALSHIELD-PRO-v1.',
     licensePublicKeySpkiB64: c.env.LICENSE_SIGNING_PUBLIC_SPKI_B64 || null,
     supportEmail: 'apexhive.hq@proton.me',
-    chainId: Number(c.env.BASE_CHAIN_ID || '8453'),
+    chainId: parsePositiveInt(c.env.BASE_CHAIN_ID, 8453, 1),
     usdcContract: c.env.BASE_USDC_CONTRACT,
     payToEvmAddress: c.env.PAY_TO_EVM_ADDRESS,
-    minConfirmations: Number(c.env.MIN_CONFIRMATIONS || '2'),
+    minConfirmations: parsePositiveInt(c.env.MIN_CONFIRMATIONS, 2, 1),
     smartWalletSupport: ['EOA', 'ERC-1271', 'EIP-6492'],
     tiers: {
       solo: {
         priceUsd: '0',
         seats: '1 natural person',
         maxAccounts: null,
-        license: 'Solo-Free 300-pt Edition (0 USDC Forever, Self-Host BYO Cloud Kit Included)'
+        license: 'Solo-Free Rule-Based Edition (0 USDC Forever, Self-Host BYO Cloud Kit Included)'
       },
       team: {
         priceAtomic: c.env.TEAM_PRICE_USDC_ATOMIC || '99000000',
@@ -336,11 +450,6 @@ app.get('/api/config', (c) => {
         maxAccounts: null,
         cloudQuota: 'Commercial Enterprise / Prop Firm / Fund License (100+ seats + White-Label Entitlement)'
       }
-    },
-    altTreasury: {
-      solana: c.env.SOLANA_RECEIVE_ADDRESS,
-      btc: c.env.BTC_RECEIVE_ADDRESS,
-      tron: c.env.TRON_RECEIVE_ADDRESS
     }
   });
 });
@@ -431,6 +540,13 @@ app.post('/api/cloud/relay/alert', async (c) => {
 });
 
 app.post('/api/challenge', async (c) => {
+  if (!c.env.TX_CLAIM_LOCK) {
+    return c.json(
+      { error: 'SERVER_MISCONFIGURED', message: 'Missing TX_CLAIM_LOCK Durable Object binding.' },
+      500
+    );
+  }
+
   const parsed = await parseBoundedJsonBody<{ txHash?: string; tier?: string }>(c.req.raw, MAX_JSON_BYTES);
   if (!parsed.ok) {
     return c.json({ error: parsed.error, message: parsed.message }, parsed.status);
@@ -446,9 +562,10 @@ app.post('/api/challenge', async (c) => {
     return c.json({ error: 'INVALID_TIER', message: 'Commercial tier must be team (99 USDC) or enterprise (499 USDC). Solo is 0 USDC free.' }, 400);
   }
 
-  const ttl = Math.max(60, Number(c.env.CHALLENGE_TTL_SECONDS || '300'));
+  const ttl = parsePositiveInt(c.env.CHALLENGE_TTL_SECONDS, 300, 60);
   const nonce = randomHex(16);
   const ts = Math.floor(Date.now() / 1000);
+  const expiresAtMs = Date.now() + ttl * 1000;
   const message = buildChallengeMessage({
     brand: c.env.BRAND_NAME || 'ApexHive Labs',
     product: c.env.PRODUCT_ID || 'evalshield-copilot',
@@ -458,8 +575,23 @@ app.post('/api/challenge', async (c) => {
     ts
   });
 
-  const record: ChallengeRecord = { nonce, txHash: txHash.toLowerCase(), tier, ts, message };
-  await c.env.LICENSES_KV.put(`challenge:${nonce}`, JSON.stringify(record), { expirationTtl: ttl });
+  const chStub = c.env.TX_CLAIM_LOCK.get(c.env.TX_CLAIM_LOCK.idFromName(`challenge:${nonce}`));
+  const createRes = await chStub.fetch('https://do.internal/challenge/create', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      nonce,
+      txHash: txHash.toLowerCase(),
+      tier,
+      ts,
+      message,
+      expiresAtMs
+    })
+  });
+  if (!createRes.ok) {
+    return c.json({ error: 'CHALLENGE_STORE_ERROR', message: 'Failed to persist challenge nonce.' }, 500);
+  }
+
   return c.json({ nonce, ts, expiresInSeconds: ttl, message });
 });
 
@@ -468,13 +600,12 @@ app.post('/api/verify', async (c) => {
     !c.env.LICENSE_SIGNING_PRIVATE_JWK ||
     !c.env.DOWNLOAD_HMAC_SECRET ||
     c.env.DOWNLOAD_HMAC_SECRET.length < 16 ||
-    !c.env.GLOBAL_CLAIMED_TX_KV ||
     !c.env.TX_CLAIM_LOCK
   ) {
     return c.json(
       {
         error: 'SERVER_MISCONFIGURED',
-        message: 'Missing LICENSE_SIGNING_PRIVATE_JWK, DOWNLOAD_HMAC_SECRET, GLOBAL_CLAIMED_TX_KV, or TX_CLAIM_LOCK.'
+        message: 'Missing LICENSE_SIGNING_PRIVATE_JWK, DOWNLOAD_HMAC_SECRET, or TX_CLAIM_LOCK.'
       },
       500
     );
@@ -507,19 +638,35 @@ app.post('/api/verify', async (c) => {
   }
 
   const txLower = txHash.toLowerCase();
-  const challengeKey = `challenge:${nonce}`;
-  const challengeRaw = await c.env.LICENSES_KV.get(challengeKey);
-  if (!challengeRaw) {
-    return c.json({ error: 'CHALLENGE_EXPIRED_OR_MISSING', message: 'Challenge expired (>300s) or unknown.' }, 403);
+  const challengeStub = c.env.TX_CLAIM_LOCK.get(c.env.TX_CLAIM_LOCK.idFromName(`challenge:${nonce}`));
+  const checkRes = await challengeStub.fetch('https://do.internal/challenge/check', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ txHash: txLower, tier })
+  });
+  const checkJson = (await checkRes.json()) as {
+    ok: boolean;
+    error?: string;
+    message?: string;
+    challenge?: { message: string };
+  };
+  if (!checkRes.ok || !checkJson.ok || !checkJson.challenge) {
+    return c.json(
+      {
+        error: checkJson.error || 'CHALLENGE_EXPIRED_OR_MISSING',
+        message: checkJson.message || 'Challenge expired (>300s) or unknown.'
+      },
+      403
+    );
   }
+  const challengeMessage = checkJson.challenge.message;
 
-  const challenge = JSON.parse(challengeRaw) as ChallengeRecord;
-  const ttl = Math.max(60, Number(c.env.CHALLENGE_TTL_SECONDS || '300'));
-  const nowSec = Math.floor(Date.now() / 1000);
-  if (challenge.txHash !== txLower || challenge.tier !== tier || nowSec - challenge.ts > ttl) {
-    await c.env.LICENSES_KV.delete(challengeKey);
-    return c.json({ error: 'CHALLENGE_MISMATCH_OR_EXPIRED', message: 'Challenge mismatch or expired.' }, 403);
-  }
+  const consumeChallenge = async () =>
+    challengeStub.fetch('https://do.internal/challenge/consume', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ txHash: txLower, tier })
+    });
 
   const rpcUrls = getBaseRpcUrls(c.env);
   let receipt: RpcReceipt | null;
@@ -545,7 +692,7 @@ app.post('/api/verify', async (c) => {
     return c.json({ error: 'TX_NOT_CONFIRMED', message: 'Malformed hex blockNumber from RPC.' }, 403);
   }
 
-  const minConf = Math.max(1, Number(c.env.MIN_CONFIRMATIONS || '2'));
+  const minConf = parsePositiveInt(c.env.MIN_CONFIRMATIONS, 2, 1);
   const confirmations = headBlock >= txBlock ? Number(headBlock - txBlock) + 1 : 0;
   if (confirmations < minConf) {
     return c.json({ error: 'INSUFFICIENT_CONFIRMATIONS', message: `Need >= ${minConf} confirmations.` }, 403);
@@ -560,23 +707,31 @@ app.post('/api/verify', async (c) => {
 
   let matchedPayer: string | null = null;
   let paidAtomic = 0n;
-  for (const [fromAddr, totalPaid] of payerTotals.entries()) {
-    if (totalPaid < requiredAmount) continue;
-    const sigOk = await verifySmartWalletOrEoaSignature({
-      rpcUrls,
-      address: fromAddr,
-      message: challenge.message,
-      signature
-    });
-    if (sigOk) {
-      matchedPayer = fromAddr;
-      paidAtomic = totalPaid;
-      break;
+  try {
+    for (const [fromAddr, totalPaid] of payerTotals.entries()) {
+      if (totalPaid < requiredAmount) continue;
+      const sigOk = await verifySmartWalletOrEoaSignature({
+        rpcUrls,
+        address: fromAddr,
+        message: challengeMessage,
+        signature
+      });
+      if (sigOk) {
+        matchedPayer = fromAddr;
+        paidAtomic = totalPaid;
+        break;
+      }
     }
+  } catch (err) {
+    if (err instanceof RpcUnavailableError) {
+      // Preserve challenge nonce across transient RPC outages during ERC-1271 / EIP-6492 eth_call
+      return c.json({ error: 'RPC_UNAVAILABLE', message: err.message }, 502);
+    }
+    throw err;
   }
 
   if (!matchedPayer) {
-    await c.env.LICENSES_KV.delete(challengeKey);
+    await consumeChallenge();
     return c.json(
       {
         error: 'PAYMENT_OR_SIGNATURE_INVALID',
@@ -587,20 +742,31 @@ app.post('/api/verify', async (c) => {
   }
 
   const globalKey = `global_tx:${txLower}`;
-  const globalRaw = await c.env.GLOBAL_CLAIMED_TX_KV.get(globalKey);
-  if (globalRaw) {
-    const globalRec = JSON.parse(globalRaw) as GlobalClaimRecord;
-    if (globalRec.scope !== SCOPE_STOREFRONT) {
-      await c.env.LICENSES_KV.delete(challengeKey);
-      return c.json(
-        { error: 'TX_ALREADY_CLAIMED_ELSEWHERE', message: `Already claimed on ${globalRec.scope}.` },
-        403
-      );
+  if (c.env.GLOBAL_CLAIMED_TX_KV) {
+    const globalRaw = await c.env.GLOBAL_CLAIMED_TX_KV.get(globalKey);
+    if (globalRaw) {
+      const globalRec = JSON.parse(globalRaw) as GlobalClaimRecord;
+      if (globalRec.scope !== SCOPE_STOREFRONT) {
+        await consumeChallenge();
+        return c.json(
+          { error: 'TX_ALREADY_CLAIMED_ELSEWHERE', message: `Already claimed on ${globalRec.scope}.` },
+          403
+        );
+      }
+      if (globalRec.payer?.toLowerCase() !== matchedPayer.toLowerCase() || globalRec.tier !== tier) {
+        await consumeChallenge();
+        return c.json({ error: 'TX_ALREADY_CLAIMED', message: 'Transaction already claimed.' }, 403);
+      }
     }
-    if (globalRec.payer?.toLowerCase() !== matchedPayer.toLowerCase() || globalRec.tier !== tier) {
-      await c.env.LICENSES_KV.delete(challengeKey);
-      return c.json({ error: 'TX_ALREADY_CLAIMED', message: 'Transaction already claimed.' }, 403);
-    }
+  }
+
+  // Atomically consume the challenge nonce BEFORE claiming txHash so concurrent nonce reuse cannot race.
+  const consumeRes = await consumeChallenge();
+  if (!consumeRes.ok) {
+    return c.json(
+      { error: 'CHALLENGE_EXPIRED_OR_MISSING', message: 'Challenge already consumed or expired.' },
+      403
+    );
   }
 
   // Acquire strongly-consistent Durable Object lock BEFORE issuing credentials or writing KV.
@@ -624,7 +790,6 @@ app.post('/api/verify', async (c) => {
     message?: string;
   };
   if (!doRes.ok || !doJson.ok) {
-    await c.env.LICENSES_KV.delete(challengeKey);
     return c.json(
       {
         error: doJson.error || 'TX_ALREADY_CLAIMED',
@@ -634,20 +799,7 @@ app.post('/api/verify', async (c) => {
     );
   }
 
-  await c.env.LICENSES_KV.delete(challengeKey);
-
-  const claimedKey = `claimed_tx:${txLower}`;
-  const existingRaw = await c.env.LICENSES_KV.get(claimedKey);
-  let reclaimed = Boolean(doJson.reclaimed);
-  if (existingRaw) {
-    const existing = JSON.parse(existingRaw) as { payer?: string; tier?: Tier };
-    if (existing.payer?.toLowerCase() === matchedPayer.toLowerCase() && existing.tier === tier) {
-      reclaimed = true;
-    } else {
-      return c.json({ error: 'TX_ALREADY_CLAIMED', message: 'Transaction already claimed.' }, 403);
-    }
-  }
-
+  const reclaimed = Boolean(doJson.reclaimed);
   const issuedAt = Date.now();
   const maxAccounts = null;
   const licenseToken = await signEvalShieldLicense(c.env, {
@@ -664,33 +816,48 @@ app.post('/api/verify', async (c) => {
   const grantId = randomHex(16);
   const sigHex = await hmacSha256Hex(c.env.DOWNLOAD_HMAC_SECRET, grantId);
   const downloadToken = `${grantId}.${sigHex}`;
-  const downloadTtl = Math.max(120, Number(c.env.DOWNLOAD_TTL_SECONDS || '600'));
+  const downloadTtl = parsePositiveInt(c.env.DOWNLOAD_TTL_SECONDS, 600, 120);
 
-  const grant: DownloadGrantRecord = {
-    txHash: txLower,
-    payer: matchedPayer,
-    tier,
-    remainingDownloads: 3,
-    createdAt: issuedAt,
-    licenseToken
-  };
-
-  const writes: Array<Promise<void>> = [
-    c.env.LICENSES_KV.put(`dl:${grantId}`, JSON.stringify(grant), { expirationTtl: downloadTtl })
-  ];
-  if (!reclaimed) {
-    writes.push(
-      c.env.LICENSES_KV.put(
-        claimedKey,
-        JSON.stringify({ txHash: txLower, payer: matchedPayer, tier, paidAtomic: paidAtomic.toString(), issuedAt })
-      ),
-      c.env.GLOBAL_CLAIMED_TX_KV.put(
-        globalKey,
-        JSON.stringify({ scope: SCOPE_STOREFRONT, payer: matchedPayer, tier, txHash: txLower, claimedAt: issuedAt })
-      )
-    );
+  const dlStub = c.env.TX_CLAIM_LOCK.get(c.env.TX_CLAIM_LOCK.idFromName(`dl:${grantId}`));
+  const dlCreateRes = await dlStub.fetch('https://do.internal/download/create', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      txHash: txLower,
+      payer: matchedPayer,
+      tier,
+      remainingDownloads: 3,
+      createdAt: issuedAt,
+      expiresAtMs: issuedAt + downloadTtl * 1000,
+      licenseToken
+    })
+  });
+  if (!dlCreateRes.ok) {
+    return c.json({ error: 'DOWNLOAD_GRANT_STORE_ERROR', message: 'Failed to persist download grant.' }, 500);
   }
-  await Promise.all(writes);
+
+  if (!reclaimed) {
+    const writes: Array<Promise<void>> = [];
+    if (c.env.LICENSES_KV) {
+      writes.push(
+        c.env.LICENSES_KV.put(
+          `claimed_tx:${txLower}`,
+          JSON.stringify({ txHash: txLower, payer: matchedPayer, tier, paidAtomic: paidAtomic.toString(), issuedAt })
+        )
+      );
+    }
+    if (c.env.GLOBAL_CLAIMED_TX_KV) {
+      writes.push(
+        c.env.GLOBAL_CLAIMED_TX_KV.put(
+          globalKey,
+          JSON.stringify({ scope: SCOPE_STOREFRONT, payer: matchedPayer, tier, txHash: txLower, claimedAt: issuedAt })
+        )
+      );
+    }
+    if (writes.length > 0) {
+      await Promise.all(writes);
+    }
+  }
 
   return c.json({
     ok: true,
@@ -709,8 +876,8 @@ app.post('/api/verify', async (c) => {
 });
 
 app.get('/api/download', async (c) => {
-  if (!c.env.DOWNLOAD_HMAC_SECRET || c.env.DOWNLOAD_HMAC_SECRET.length < 16) {
-    return c.json({ error: 'SERVER_MISCONFIGURED', message: 'Missing DOWNLOAD_HMAC_SECRET.' }, 500);
+  if (!c.env.DOWNLOAD_HMAC_SECRET || c.env.DOWNLOAD_HMAC_SECRET.length < 16 || !c.env.TX_CLAIM_LOCK) {
+    return c.json({ error: 'SERVER_MISCONFIGURED', message: 'Missing DOWNLOAD_HMAC_SECRET or TX_CLAIM_LOCK.' }, 500);
   }
 
   const token = (c.req.query('token') ?? '').trim();
@@ -725,29 +892,29 @@ app.get('/api/download', async (c) => {
     return c.json({ error: 'INVALID_DOWNLOAD_TOKEN' }, 403);
   }
 
-  const dlKey = `dl:${grantId}`;
-  const raw = await c.env.LICENSES_KV.get(dlKey);
-  if (!raw) {
-    return c.json({ error: 'DOWNLOAD_TOKEN_EXPIRED', message: 'Download grant expired or exhausted.' }, 403);
-  }
-
-  const grant = JSON.parse(raw) as DownloadGrantRecord;
-  if (grant.remainingDownloads <= 0) {
-    await c.env.LICENSES_KV.delete(dlKey);
-    return c.json({ error: 'DOWNLOAD_LIMIT_REACHED' }, 403);
-  }
-
-  const nextRemaining = grant.remainingDownloads - 1;
-  const downloadTtl = Math.max(120, Number(c.env.DOWNLOAD_TTL_SECONDS || '600'));
-  if (nextRemaining <= 0) {
-    await c.env.LICENSES_KV.delete(dlKey);
-  } else {
-    await c.env.LICENSES_KV.put(
-      dlKey,
-      JSON.stringify({ ...grant, remainingDownloads: nextRemaining }),
-      { expirationTtl: downloadTtl }
+  const dlStub = c.env.TX_CLAIM_LOCK.get(c.env.TX_CLAIM_LOCK.idFromName(`dl:${grantId}`));
+  const redeemRes = await dlStub.fetch('https://do.internal/download/redeem', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}'
+  });
+  const redeemJson = (await redeemRes.json()) as {
+    ok: boolean;
+    error?: string;
+    message?: string;
+    grant?: DurableDownloadGrantRecord;
+  };
+  if (!redeemRes.ok || !redeemJson.ok || !redeemJson.grant) {
+    return c.json(
+      {
+        error: redeemJson.error || 'DOWNLOAD_TOKEN_EXPIRED',
+        message: redeemJson.message || 'Download grant expired or exhausted.'
+      },
+      403
     );
   }
+
+  const grant = redeemJson.grant;
 
   const bundle = {
     ok: true,

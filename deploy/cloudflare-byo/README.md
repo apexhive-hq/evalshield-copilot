@@ -14,9 +14,11 @@ pnpm install --ignore-scripts
 npx wrangler secret put ALERT_WEBHOOK_URL
 # e.g. https://api.telegram.org/bot<YOUR_TOKEN>/sendMessage  OR  https://discord.com/api/webhooks/...
 
-# Optional for Telegram & TradingView webhook auth:
-npx wrangler secret put TELEGRAM_CHAT_ID
+# Set your REQUIRED TradingView webhook secret (worker fails closed 503 SERVICE_UNCONFIGURED if unset):
 npx wrangler secret put TRADINGVIEW_WEBHOOK_SECRET
+
+# Optional for Telegram chat targeting:
+npx wrangler secret put TELEGRAM_CHAT_ID
 
 npx wrangler deploy
 ```

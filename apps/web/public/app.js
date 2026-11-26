@@ -6,7 +6,7 @@
   let state = {
     accounts: [],
     activeAccountId: null,
-    license: { tier: 'free', valid: false, maxAccounts: 1 },
+    license: { tier: 'free', valid: false, maxAccounts: null },
     empiricalPnls: [],
   };
 
@@ -49,10 +49,10 @@
       badge.textContent = 'Commercial Team (2-99 Seats)';
       badge.className = 'pill';
     } else if (lic.tier === 'solo') {
-      badge.textContent = 'Pro Solo (Cloud API)';
+      badge.textContent = 'Solo ($0 Local Verified)';
       badge.className = 'pill';
     } else {
-      badge.textContent = 'Solo $0 (Full 300-pt Local)';
+      badge.textContent = 'Solo $0 (Full Local Engine)';
       badge.className = 'pill';
     }
   }
@@ -94,8 +94,8 @@
     for (const t of trades) {
       const tr = document.createElement('tr');
       const cells = [
-        t.symbol,
-        t.side,
+        t.rootSymbol || t.symbol || '-',
+        t.direction || t.side || '-',
         String(t.qty),
         Number(t.entryPrice).toFixed(2),
         Number(t.exitPrice).toFixed(2),
@@ -180,7 +180,7 @@
         : 'Normal Sync (17:00 ET)';
       if (brief.hyperliquid && brief.hyperliquid.length > 0) {
         hlEl.textContent = brief.hyperliquid
-          .slice(0, 2)
+          .slice(0, 3)
           .map((h) => `${h.coin} $${Math.round(h.markPx).toLocaleString()} (${h.annualizedFundingPct}%)`)
           .join(' | ');
       } else {
@@ -238,7 +238,7 @@
       return seed / 4294967296;
     };
 
-    const runs = 10000;
+    const runs = 25000;
     let passed = 0;
     let ruined = 0;
     const lengths = [];

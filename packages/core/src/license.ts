@@ -115,7 +115,7 @@ export function verifyEvalShieldLicenseToken(
     v: parsed.data.v,
     product: parsed.data.product,
     tier: parsed.data.tier,
-    maxAccounts: parsed.data.maxAccounts ?? (parsed.data.tier === 'solo' ? 20 : null),
+    maxAccounts: parsed.data.maxAccounts ?? null,
     payer: parsed.data.payer,
     txHash: parsed.data.txHash,
     issuedAt: parsed.data.issuedAt,

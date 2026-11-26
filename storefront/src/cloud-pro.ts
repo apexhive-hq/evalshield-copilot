@@ -220,6 +220,17 @@ export async function authenticateCloudProRequest(
     };
   }
 
+  if (parsed.tier === 'solo') {
+    return {
+      provided: true,
+      authenticated: false,
+      status: 403,
+      error: 'TEAM_OR_ENTERPRISE_REQUIRED',
+      message:
+        'Solo tier is $0 local/BYO self-hosted; hosted commercial Cloud Relay requires a Team or Enterprise license.'
+    };
+  }
+
   const txLower = parsed.txHash.toLowerCase();
   let kvClaimed = false;
   if (env.LICENSES_KV) {
@@ -244,7 +255,7 @@ export async function authenticateCloudProRequest(
       v: 1,
       product: 'evalshield-copilot',
       tier: parsed.tier,
-      maxAccounts: parsed.maxAccounts ?? (parsed.tier === 'solo' ? 20 : null),
+      maxAccounts: parsed.maxAccounts ?? null,
       payer: parsed.payer,
       txHash: txLower,
       issuedAt: parsed.issuedAt,
@@ -254,103 +265,253 @@ export async function authenticateCloudProRequest(
   };
 }
 
-function isUsEdtMonth(monthIndexZeroBased: number): boolean {
-  // Approximate US DST window (March..October) for 08:30 ET (12:30 UTC) vs EST 08:30 ET (13:30 UTC)
-  return monthIndexZeroBased >= 2 && monthIndexZeroBased <= 9;
+/**
+ * Verified official Federal Reserve FOMC Day-2 decision dates (2:00 PM ET)
+ * and BLS CPI & Employment Situation (NFP) release dates (8:30 AM ET) for 2026-2027
+ * (plus FOMC Jan 2028).
+ */
+const OFFICIAL_FOMC_DATES = [
+  '2026-01-28', '2026-03-18', '2026-04-29', '2026-06-17',
+  '2026-07-29', '2026-09-16', '2026-10-28', '2026-12-09',
+  '2027-01-27', '2027-03-17', '2027-04-28', '2027-06-09',
+  '2027-07-28', '2027-09-15', '2027-10-27', '2027-11-17',
+  '2028-01-26'
+] as const;
+
+const OFFICIAL_BLS_CPI_DATES = [
+  '2026-01-13', '2026-02-13', '2026-03-11', '2026-04-10',
+  '2026-05-12', '2026-06-10', '2026-07-14', '2026-08-12',
+  '2026-09-11', '2026-10-14', '2026-11-10', '2026-12-10',
+  '2027-01-13', '2027-02-11', '2027-03-10', '2027-04-13',
+  '2027-05-12', '2027-06-10', '2027-07-14', '2027-08-11',
+  '2027-09-14', '2027-10-14', '2027-11-10', '2027-12-10'
+] as const;
+
+const OFFICIAL_BLS_NFP_DATES = [
+  '2026-01-09', '2026-02-06', '2026-03-06', '2026-04-03',
+  '2026-05-08', '2026-06-05', '2026-07-02', '2026-08-07',
+  '2026-09-04', '2026-10-02', '2026-11-06', '2026-12-04',
+  '2027-01-08', '2027-02-05', '2027-03-05', '2027-04-02',
+  '2027-05-07', '2027-06-04', '2027-07-02', '2027-08-06',
+  '2027-09-03', '2027-10-08', '2027-11-05', '2027-12-03'
+] as const;
+
+/**
+ * Computes exact US Eastern Daylight Time status using US 2007+ rules
+ * (2nd Sunday in March 02:00 EST -> 1st Sunday in November 02:00 EDT)
+ * cross-checked with Intl.DateTimeFormat('America/New_York').
+ */
+export function isUsEasternDstActive(year: number, month: number, day: number, hourEt: number, minuteEt: number): boolean {
+  const marchFirstDow = new Date(Date.UTC(year, 2, 1)).getUTCDay();
+  const secondSundayMarch = 8 + ((7 - marchFirstDow) % 7);
+  const novFirstDow = new Date(Date.UTC(year, 10, 1)).getUTCDay();
+  const firstSundayNov = 1 + ((7 - novFirstDow) % 7);
+
+  const dstStartUtcMs = Date.UTC(year, 2, secondSundayMarch, 7, 0, 0); // 02:00 EST = 07:00 UTC
+  const dstEndUtcMs = Date.UTC(year, 10, firstSundayNov, 6, 0, 0); // 02:00 EDT = 06:00 UTC
+  const probeEdtUtcMs = Date.UTC(year, month - 1, day, hourEt + 4, minuteEt, 0);
+  const probeEstUtcMs = Date.UTC(year, month - 1, day, hourEt + 5, minuteEt, 0);
+
+  const ruleIsEdt = probeEstUtcMs >= dstStartUtcMs && probeEdtUtcMs < dstEndUtcMs;
+  try {
+    const probeMs = ruleIsEdt ? probeEdtUtcMs : probeEstUtcMs;
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).formatToParts(new Date(probeMs));
+    const hrRaw = Number(parts.find((p) => p.type === 'hour')?.value ?? '-1');
+    const hr = hrRaw === 24 ? 0 : hrRaw;
+    if (hr === hourEt) return ruleIsEdt;
+    if (hr === (hourEt + 1) % 24) return true;
+    if (hr === (hourEt + 23) % 24) return false;
+  } catch {
+    // Fallback to deterministic US DST boundary math
+  }
+  return ruleIsEdt;
 }
 
-function nthWeekdayOfMonthUtc(year: number, monthIndex: number, targetDow: number, nth: number): Date {
+export function easternTimeToUtcIso(dateStr: string, hourEt: number, minuteEt: number): string {
+  const [yStr, mStr, dStr] = dateStr.split('-');
+  const year = Number(yStr);
+  const month = Number(mStr);
+  const day = Number(dStr);
+  const edt = isUsEasternDstActive(year, month, day, hourEt, minuteEt);
+  const offsetHours = edt ? 4 : 5;
+  return new Date(Date.UTC(year, month - 1, day, hourEt + offsetHours, minuteEt, 0)).toISOString().replace('.000Z', 'Z');
+}
+
+function nthWeekdayDateStr(year: number, monthIndex: number, targetDow: number, nth: number): string {
   const firstDow = new Date(Date.UTC(year, monthIndex, 1)).getUTCDay();
   const offset = (targetDow - firstDow + 7) % 7;
   const day = 1 + offset + (nth - 1) * 7;
-  return new Date(Date.UTC(year, monthIndex, day));
+  return `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
-function isoDatePrefix(d: Date): string {
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+export interface BlackoutEventEntry {
+  id: string;
+  name: string;
+  category: string;
+  impact: string;
+  scheduledUtc?: string;
+  scheduledEt?: string;
+  recurringEtWindow?: string;
+  isEstimated: boolean;
+  scheduleStatus: 'OFFICIAL_PUBLISHED_SCHEDULE' | 'ESTIMATED_PRELIMINARY_SCHEDULE' | 'RECURRING_EXCHANGE_SESSION';
+  bufferMinutesBefore: number;
+  bufferMinutesAfter: number;
+  sizeMultiplierDuringWindow: number;
+  affectedContracts: string[];
+  rationale: string;
 }
 
-export function buildRollingMacroBlackoutEvents(referenceDate = new Date(), horizonMonths = 14) {
+export function buildRollingMacroBlackoutEvents(referenceDate = new Date(), horizonMonths = 14): BlackoutEventEntry[] {
   const startYear = referenceDate.getUTCFullYear();
   const startMonth = referenceDate.getUTCMonth();
-  const monthFloorMs = Date.UTC(startYear, startMonth, 1);
+  const windowStartMs = Date.UTC(startYear, startMonth, 1);
+  const windowEndProbe = new Date(Date.UTC(startYear, startMonth + horizonMonths + 1, 1));
+  const windowEndMs = windowEndProbe.getTime();
 
-  const rollingEvents: Array<{
-    id: string;
-    name: string;
-    category: string;
-    impact: string;
-    scheduledUtc?: string;
-    recurringEtWindow?: string;
-    bufferMinutesBefore: number;
-    bufferMinutesAfter: number;
-    sizeMultiplierDuringWindow: number;
-    affectedContracts: string[];
-    rationale: string;
-  }> = [];
+  const events: BlackoutEventEntry[] = [];
 
+  for (const dateStr of OFFICIAL_BLS_NFP_DATES) {
+    const scheduledUtc = easternTimeToUtcIso(dateStr, 8, 30);
+    const ms = Date.parse(scheduledUtc);
+    if (ms < windowStartMs || ms >= windowEndMs) continue;
+    const ym = dateStr.slice(0, 7);
+    events.push({
+      id: `us-nfp-${ym}`,
+      name: 'US Non-Farm Payrolls & Employment Situation (BLS)',
+      category: 'LABOR',
+      impact: 'HIGH',
+      scheduledUtc,
+      scheduledEt: `${dateStr} 08:30 America/New_York`,
+      isEstimated: false,
+      scheduleStatus: 'OFFICIAL_PUBLISHED_SCHEDULE',
+      bufferMinutesBefore: 15,
+      bufferMinutesAfter: 15,
+      sizeMultiplierDuringWindow: 0,
+      affectedContracts: ['ES', 'MES', 'NQ', 'MNQ', 'GC', 'MGC', 'XAUUSD'],
+      rationale: 'Official BLS Employment Situation 08:30 ET release; high-slippage caution.'
+    });
+  }
+
+  for (const dateStr of OFFICIAL_BLS_CPI_DATES) {
+    const scheduledUtc = easternTimeToUtcIso(dateStr, 8, 30);
+    const ms = Date.parse(scheduledUtc);
+    if (ms < windowStartMs || ms >= windowEndMs) continue;
+    const ym = dateStr.slice(0, 7);
+    events.push({
+      id: `us-cpi-${ym}`,
+      name: 'US CPI & Core CPI Release (BLS)',
+      category: 'INFLATION',
+      impact: 'HIGH',
+      scheduledUtc,
+      scheduledEt: `${dateStr} 08:30 America/New_York`,
+      isEstimated: false,
+      scheduleStatus: 'OFFICIAL_PUBLISHED_SCHEDULE',
+      bufferMinutesBefore: 15,
+      bufferMinutesAfter: 15,
+      sizeMultiplierDuringWindow: 0,
+      affectedContracts: ['ES', 'MES', 'NQ', 'MNQ', 'GC', 'MGC', 'XAUUSD'],
+      rationale: 'Official BLS CPI 08:30 ET release; Topstep/Apex/FTMO Tier-1 CPI blackout protection.'
+    });
+  }
+
+  for (const dateStr of OFFICIAL_FOMC_DATES) {
+    const isStrategySession = dateStr === '2027-10-27';
+    const scheduledUtc = easternTimeToUtcIso(dateStr, 14, 0);
+    const ms = Date.parse(scheduledUtc);
+    if (ms < windowStartMs || ms >= windowEndMs) continue;
+    const ym = dateStr.slice(0, 7);
+    events.push({
+      id: `fomc-rate-${ym}`,
+      name: isStrategySession
+        ? 'FOMC Monetary Policy Strategy Session (Federal Reserve — No Rate Decision/Press Conference)'
+        : 'FOMC Rate Decision & Press Conference (Federal Reserve)',
+      category: 'CENTRAL_BANK',
+      impact: isStrategySession ? 'MODERATE' : 'EXTREME',
+      scheduledUtc,
+      scheduledEt: `${dateStr} 14:00 America/New_York`,
+      isEstimated: false,
+      scheduleStatus: 'OFFICIAL_PUBLISHED_SCHEDULE',
+      bufferMinutesBefore: isStrategySession ? 5 : 20,
+      bufferMinutesAfter: isStrategySession ? 5 : 35,
+      sizeMultiplierDuringWindow: isStrategySession ? 0.5 : 0,
+      affectedContracts: ['ES', 'MES', 'NQ', 'MNQ', 'GC', 'MGC', 'CL', 'MCL', 'XAUUSD'],
+      rationale: isStrategySession
+        ? 'Official Federal Reserve Oct 26–27, 2027 monetary policy strategy session (no scheduled rate decision or press conference).'
+        : 'Official Federal Reserve FOMC 14:00 ET Day-2 announcement & press conference.'
+    });
+  }
+
+  // Emit explicitly tagged preliminary placeholders ONLY for months outside verified 2026-2027 (+ Jan 2028 FOMC)
+  const officialBlsMaxYm = '2027-12';
+  const officialFomcMaxYm = '2028-01';
   for (let i = 0; i <= horizonMonths; i += 1) {
     const probe = new Date(Date.UTC(startYear, startMonth + i, 1));
     const y = probe.getUTCFullYear();
     const m = probe.getUTCMonth();
     const ym = `${y}-${String(m + 1).padStart(2, '0')}`;
-    const releaseHourUtc = isUsEdtMonth(m) ? '12:30:00Z' : '13:30:00Z';
 
-    // 1. Recurring US NFP: 1st Friday of each month at 08:30 ET
-    const nfpDate = nthWeekdayOfMonthUtc(y, m, 5, 1);
-    rollingEvents.push({
-      id: `us-nfp-${ym}`,
-      name: 'US Non-Farm Payrolls & Unemployment Rate (BLS)',
-      category: 'LABOR',
-      impact: 'HIGH',
-      scheduledUtc: `${isoDatePrefix(nfpDate)}T${releaseHourUtc}`,
-      bufferMinutesBefore: 15,
-      bufferMinutesAfter: 15,
-      sizeMultiplierDuringWindow: 0,
-      affectedContracts: ['ES', 'MES', 'NQ', 'MNQ', 'GC', 'MGC', 'XAUUSD'],
-      rationale: 'Recurring 1st-Friday 08:30 ET BLS release; high-slippage caution.'
-    });
+    if (ym > officialBlsMaxYm) {
+      const estNfpDate = nthWeekdayDateStr(y, m, 5, 1);
+      events.push({
+        id: `us-nfp-est-${ym}`,
+        name: 'US Non-Farm Payrolls [Estimated Preliminary Cadence]',
+        category: 'LABOR',
+        impact: 'HIGH',
+        scheduledUtc: easternTimeToUtcIso(estNfpDate, 8, 30),
+        scheduledEt: `${estNfpDate} 08:30 America/New_York`,
+        isEstimated: true,
+        scheduleStatus: 'ESTIMATED_PRELIMINARY_SCHEDULE',
+        bufferMinutesBefore: 15,
+        bufferMinutesAfter: 15,
+        sizeMultiplierDuringWindow: 0,
+        affectedContracts: ['ES', 'MES', 'NQ', 'MNQ', 'GC', 'MGC', 'XAUUSD'],
+        rationale: 'Preliminary cadence estimate beyond published 2026-2027 BLS calendar; verify official BLS release date.'
+      });
 
-    // 2. Recurring US CPI cadence window: 2nd Wednesday of each month at 08:30 ET
-    const cpiDate = nthWeekdayOfMonthUtc(y, m, 3, 2);
-    rollingEvents.push({
-      id: `us-cpi-${ym}`,
-      name: 'US CPI & Core CPI Window (BLS Cadence)',
-      category: 'INFLATION',
-      impact: 'HIGH',
-      scheduledUtc: `${isoDatePrefix(cpiDate)}T${releaseHourUtc}`,
-      bufferMinutesBefore: 15,
-      bufferMinutesAfter: 15,
-      sizeMultiplierDuringWindow: 0,
-      affectedContracts: ['ES', 'MES', 'NQ', 'MNQ', 'GC', 'MGC', 'XAUUSD'],
-      rationale: 'Topstep/Apex/FTMO Tier-1 CPI slippage & news-blackout protection.'
-    });
+      const estCpiDate = nthWeekdayDateStr(y, m, 3, 2);
+      events.push({
+        id: `us-cpi-est-${ym}`,
+        name: 'US CPI & Core CPI [Estimated Preliminary Cadence]',
+        category: 'INFLATION',
+        impact: 'HIGH',
+        scheduledUtc: easternTimeToUtcIso(estCpiDate, 8, 30),
+        scheduledEt: `${estCpiDate} 08:30 America/New_York`,
+        isEstimated: true,
+        scheduleStatus: 'ESTIMATED_PRELIMINARY_SCHEDULE',
+        bufferMinutesBefore: 15,
+        bufferMinutesAfter: 15,
+        sizeMultiplierDuringWindow: 0,
+        affectedContracts: ['ES', 'MES', 'NQ', 'MNQ', 'GC', 'MGC', 'XAUUSD'],
+        rationale: 'Preliminary cadence estimate beyond published 2026-2027 BLS calendar; verify official BLS release date.'
+      });
+    }
 
-    // 3. Quarterly FOMC SEP Rate Decisions (Mar, Jun, Sep, Dec — 3rd Wednesday at 14:00 ET)
-    if (m === 2 || m === 5 || m === 8 || m === 11) {
-      const fomcDate = nthWeekdayOfMonthUtc(y, m, 3, 3);
-      const fomcHourUtc = isUsEdtMonth(m) ? '18:00:00Z' : '19:00:00Z';
-      rollingEvents.push({
-        id: `fomc-rate-${ym}`,
-        name: 'FOMC Rate Decision & Press Conference (Federal Reserve)',
+    if (ym > officialFomcMaxYm && (m === 2 || m === 5 || m === 8 || m === 11)) {
+      const estFomcDate = nthWeekdayDateStr(y, m, 3, 3);
+      events.push({
+        id: `fomc-rate-est-${ym}`,
+        name: 'FOMC Rate Decision [Estimated Preliminary Cadence]',
         category: 'CENTRAL_BANK',
         impact: 'EXTREME',
-        scheduledUtc: `${isoDatePrefix(fomcDate)}T${fomcHourUtc}`,
+        scheduledUtc: easternTimeToUtcIso(estFomcDate, 14, 0),
+        scheduledEt: `${estFomcDate} 14:00 America/New_York`,
+        isEstimated: true,
+        scheduleStatus: 'ESTIMATED_PRELIMINARY_SCHEDULE',
         bufferMinutesBefore: 20,
         bufferMinutesAfter: 35,
         sizeMultiplierDuringWindow: 0,
         affectedContracts: ['ES', 'MES', 'NQ', 'MNQ', 'GC', 'MGC', 'CL', 'MCL', 'XAUUSD'],
-        rationale: 'Quarterly FOMC dot-plot + press conference spreads routinely widen dramatically.'
+        rationale: 'Preliminary FOMC estimate beyond published 2026-Jan 2028 Federal Reserve calendar.'
       });
     }
   }
 
-  const upcomingDated = rollingEvents
-    .filter((ev) => !ev.scheduledUtc || Date.parse(ev.scheduledUtc) >= monthFloorMs)
-    .sort((a, b) => Date.parse(a.scheduledUtc ?? '') - Date.parse(b.scheduledUtc ?? ''));
+  const upcomingDated = events.sort((a, b) => Date.parse(a.scheduledUtc ?? '') - Date.parse(b.scheduledUtc ?? ''));
 
   upcomingDated.push({
     id: 'cme-daily-maint',
@@ -358,6 +519,8 @@ export function buildRollingMacroBlackoutEvents(referenceDate = new Date(), hori
     category: 'SESSION',
     impact: 'MANDATORY_FLAT',
     recurringEtWindow: '17:00-18:00 America/New_York',
+    isEstimated: false,
+    scheduleStatus: 'RECURRING_EXCHANGE_SESSION',
     bufferMinutesBefore: 5,
     bufferMinutesAfter: 2,
     sizeMultiplierDuringWindow: 0,
@@ -375,9 +538,15 @@ export function buildBlackoutCalendarResponse(auth: CloudAuthResult, referenceDa
     openAccess: true,
     licenseModel: 'ApexHive Dual License (Solo 0 USDC Forever · Team Early-Bird 99 USDC · Enterprise Early-Bird 499 USDC)',
     authenticated: auth.authenticated,
-    tier: auth.authenticated ? auth.tier : 'solo_free_300pt',
+    tier: auth.authenticated ? auth.tier : 'solo_free',
     kvClaimed: auth.authenticated ? auth.kvClaimed : false,
     schemaVersion: '2026.11.v3',
+    publishedScheduleWindow: {
+      blsStart: '2026-01-01',
+      blsEnd: '2027-12-31',
+      fomcStart: '2026-01-01',
+      fomcEnd: '2028-01-26'
+    },
     rollingHorizonMonths: 14,
     generatedAtUtc: referenceDate.toISOString(),
     cmeMaintenanceDailyEt: '17:00-18:00 America/New_York',
@@ -530,14 +699,14 @@ const CANONICAL_PROP_PRESETS = [
   }
 ];
 
-export function buildCloudPresetsResponse(auth: CloudAuthResult) {
+export function buildCloudPresetsResponse(auth: CloudAuthResult, referenceDate = new Date()) {
   return {
     ok: true,
     openAccess: true,
     schemaVersion: '2026.11.v3',
-    updatedAtUtc: '2026-11-26T00:00:00Z',
+    updatedAtUtc: referenceDate.toISOString(),
     authenticated: auth.authenticated,
-    tier: auth.authenticated ? auth.tier : 'solo_free_300pt',
+    tier: auth.authenticated ? auth.tier : 'solo_free',
     orderRoutingEnabled: false,
     presets: CANONICAL_PROP_PRESETS,
     proRiskMultipliers: {
@@ -593,7 +762,7 @@ export function runServerMonteCarlo(
   rawBody: Record<string, unknown>,
   tier: Tier
 ): { ok: true; data: MonteCarloResultPayload } | { ok: false; error: string; message: string } {
-  const runsRaw = rawBody.runs === undefined ? 10_000 : Number(rawBody.runs);
+  const runsRaw = rawBody.runs === undefined ? 25_000 : Number(rawBody.runs);
   const accountsRaw = rawBody.accounts === undefined ? 1 : Number(rawBody.accounts);
   const winRateRaw = rawBody.winRate === undefined ? 0.48 : Number(rawBody.winRate);
   const rrRaw = rawBody.rewardRiskRatio === undefined ? 1.6 : Number(rawBody.rewardRiskRatio);
@@ -963,7 +1132,7 @@ export async function buildPublicCloudBrief(
   try {
     const hlRes = await fetchFn('https://api.hyperliquid.xyz/info', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'user-agent': 'EvalShield-Cloud/3.0' },
+      headers: { 'content-type': 'application/json', 'user-agent': 'EvalShield-Cloud/3.0.2' },
       body: JSON.stringify({ type: 'metaAndAssetCtxs' }),
       signal: AbortSignal.timeout(3500)
     });
@@ -1002,7 +1171,7 @@ export async function buildPublicCloudBrief(
       try {
         const pRes = await fetchFn(
           `https://gamma-api.polymarket.com/markets?slug=${encodeURIComponent(slug)}`,
-          { headers: { accept: 'application/json', 'user-agent': 'EvalShield-Cloud/3.0.1' }, signal: AbortSignal.timeout(3500) }
+          { headers: { accept: 'application/json', 'user-agent': 'EvalShield-Cloud/3.0.2' }, signal: AbortSignal.timeout(3500) }
         );
         if (pRes.ok) {
           const rows = (await pRes.json()) as Array<Record<string, unknown>>;
@@ -1027,7 +1196,7 @@ export async function buildPublicCloudBrief(
     try {
       const pRes = await fetchFn(
         'https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=3&order=volume24hr&ascending=false',
-        { headers: { accept: 'application/json', 'user-agent': 'EvalShield-Cloud/3.0.1' }, signal: AbortSignal.timeout(3500) }
+        { headers: { accept: 'application/json', 'user-agent': 'EvalShield-Cloud/3.0.2' }, signal: AbortSignal.timeout(3500) }
       );
       if (pRes.ok) {
         const rows = (await pRes.json()) as Array<Record<string, unknown>>;
@@ -1090,6 +1259,7 @@ export function evaluatePublicPortfolioGuard(rawBody: Record<string, unknown>): 
     const s = sym.toUpperCase().replace(/[^A-Z0-9-]/g, '');
     if (s === 'ES' || s === 'MES' || s === 'NQ' || s === 'MNQ') return 'US_EQUITY_INDEX';
     if (s === 'GC' || s === 'MGC' || s === 'XAUUSD') return 'GOLD_METALS';
+    if (s === 'CL' || s === 'MCL') return 'ENERGY';
     if (s.startsWith('BTC') || s.startsWith('ETH') || s.startsWith('SOL')) return 'CRYPTO_BETA';
     return s;
   };

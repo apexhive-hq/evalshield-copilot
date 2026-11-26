@@ -114,10 +114,18 @@ function makeId(prefix: string): string {
 
 export function escapeCsvCell(raw: unknown): string {
   let str = String(raw ?? '');
-  if (/^[=+\-@\t\r]/.test(str)) {
+  if (/^(?:[=+\-@\t\r\n]|\s+[=+\-@])/.test(str)) {
     str = `'${str}`;
   }
   if (/[",\r\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+function quoteRawCsvField(raw: unknown): string {
+  const str = String(raw ?? '').replace(/[\r\n]+/g, ' ');
+  if (/[",]/.test(str)) {
     return `"${str.replace(/"/g, '""')}"`;
   }
   return str;
@@ -770,7 +778,17 @@ export class EvalShieldDb {
         const price = input.price ?? 0;
         const side = input.side ?? 'BUY';
         const execId = input.execId ?? eventId;
-        const csvLine = `${execId},${execId},${tsIso},${tsIso},${side},${qty},${price},${input.symbol},${input.commission ?? 0}`;
+        const csvLine = [
+          quoteRawCsvField(execId),
+          quoteRawCsvField(execId),
+          quoteRawCsvField(tsIso),
+          quoteRawCsvField(tsIso),
+          quoteRawCsvField(side),
+          quoteRawCsvField(qty),
+          quoteRawCsvField(price),
+          quoteRawCsvField(input.symbol),
+          quoteRawCsvField(input.commission ?? 0)
+        ].join(',');
         const header = 'Fill ID,Order ID,Timestamp,_timestamp,Side,Quantity,Price,Contract,Commission';
         const imported = this.importCsv(account.id, `${header}\n${csvLine}`, 'tradovate-fills');
         return { ok: true as const, eventId, account: imported.account };

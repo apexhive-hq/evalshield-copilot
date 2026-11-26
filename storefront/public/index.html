@@ -17,7 +17,7 @@
       <nav class="nav-links" aria-label="Primary navigation">
         <a href="#calculator">Risk &amp; Drawdown Shield</a>
         <a href="#monte-carlo">Monte Carlo Survival</a>
-        <a href="#cloud-pro">Open 300-pt Sandbox</a>
+        <a href="#cloud-pro">Open Risk Sandbox</a>
         <a href="#licensing">Dual Licensing</a>
         <a href="https://github.com/apexhive-hq/evalshield-copilot" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
       </nav>
@@ -29,7 +29,7 @@
       <span class="badge-pill">ApexHive Dual License · Solo 0 USDC Forever · Team Early-Bird 99 / Enterprise 499 USDC</span>
       <h1>Cross-Market Prop-Firm Risk Shield, Portfolio Anti-Hedge Guard &amp; Co-Pilot</h1>
       <p class="subtitle">
-        Full 300-point engine open at <code>0 USDC</code> for Solo traders: Intraday/EOD/Static trailing floors, ATR &amp; Spread R-drag across CME Futures (<code>ES/NQ/GC/CL</code>), Gold (<code>XAUUSD</code>), FX &amp; Perps (<code>BTC-PERP</code>), FTMO/Tradeify news &amp; anti-hedge rules, plus 1-click self-host BYO Cloudflare kit.
+        Full rule-based risk evaluation engine open at <code>0 USDC</code> for Solo traders: Intraday/EOD/Static trailing floors, ATR &amp; Spread R-drag across CME Futures (<code>ES/NQ/GC/CL</code>), Gold (<code>XAUUSD</code>), FX &amp; Perps (<code>BTC-PERP / ETH-PERP / SOL-PERP</code>), FTMO/Tradeify news &amp; anti-hedge rules, plus 1-click self-host BYO Cloudflare kit.
       </p>
       <div id="compliance-firewall" class="firewall-banner">
         <strong>Human-in-the-Loop Firewall (Apex / Topstep / FTMO / Tradeify Safe):</strong> Strictly read-only risk math, pre-trade thesis audits, and passive feeds (Polymarket Gamma &amp; Hyperliquid <code>/info</code>). Zero broker API keys, zero order routing, and zero X/Twitter scraping.
@@ -90,6 +90,7 @@
             <option value="EURUSD">EURUSD (FX Standard Lot — $10/pip)</option>
             <option value="BTC-PERP">BTC-PERP (Perp — $1/tick)</option>
             <option value="ETH-PERP">ETH-PERP (Perp — $0.10/tick)</option>
+            <option value="SOL-PERP">SOL-PERP (Perp — $0.01/tick)</option>
             <option value="CL">CL (WTI Crude — $10.00/tick)</option>
             <option value="MCL">MCL (Micro Crude — $1.00/tick)</option>
           </select>
@@ -140,8 +141,8 @@
 
     <section id="monte-carlo" class="card">
       <div class="toolbar" style="justify-content: space-between; margin-bottom: 12px;">
-        <h2 style="margin: 0;">10,000-Run Evaluation Monte Carlo Simulator</h2>
-        <button id="mc-run-btn" class="btn btn-primary" type="button">Run 10,000 Simulations</button>
+        <h2 style="margin: 0;">25,000-Run Evaluation Monte Carlo Simulator</h2>
+        <button id="mc-run-btn" class="btn btn-primary" type="button">Run 25,000 Simulations</button>
       </div>
 
       <div class="form-grid" style="margin-bottom: 12px;">
@@ -185,7 +186,7 @@
 
     <section id="cloud-pro" class="card">
       <div class="toolbar" style="justify-content: space-between; margin-bottom: 12px;">
-        <h2 style="margin: 0;">Open 300-pt Sandbox API (100% Free at $0 for Solo)</h2>
+        <h2 style="margin: 0;">Open Risk Sandbox API (100% Free at $0 for Solo)</h2>
         <div class="toolbar">
           <button id="cloud-blackouts-btn" class="btn" type="button">Fetch Macro Blackout Feed</button>
           <button id="cloud-presets-btn" class="btn" type="button">Sync Canonical Firm Presets</button>
@@ -193,7 +194,7 @@
         </div>
       </div>
       <p class="subtitle">
-        Solo-Free / Commercial Seat philosophy: all analytical cloud tools are unlocked publicly at <code>$0</code> — full FOMC/CPI/FTMO/MFFU blackout rules (<code>GET /api/cloud/blackout-calendar</code>), canonical presets (<code>GET /api/cloud/presets</code>), 25,000-run Monte Carlo (<code>POST /api/cloud/monte-carlo</code>), live Hyperliquid &amp; DST Brief (<code>GET /api/cloud/brief</code>), and Tradeify/FTMO Portfolio Anti-Hedge check (<code>POST /api/cloud/portfolio-guard</code>). Only live outbound webhook relay (<code>dryRun: false</code>) requires a Commercial license (or deploy <code>deploy/cloudflare-byo/</code> to your own free Cloudflare account).
+        Solo-Free / Commercial Seat philosophy: all analytical cloud tools are unlocked publicly at <code>$0</code> — full FOMC/CPI/FTMO/MFFU blackout rules (<code>GET /api/cloud/blackout-calendar</code>), canonical presets (<code>GET /api/cloud/presets</code>), 25,000-run Monte Carlo (<code>POST /api/cloud/monte-carlo</code>), live Hyperliquid &amp; DST Brief (<code>GET /api/cloud/brief</code>), and Tradeify/FTMO Portfolio Anti-Hedge check (<code>POST /api/cloud/portfolio-guard</code>). Only live outbound webhook relay (<code>dryRun: false</code>) requires a Commercial Team or Enterprise license (or deploy <code>deploy/cloudflare-byo/</code> to your own free Cloudflare account).
       </p>
       <pre id="cloud-preview-output" class="code-block">Click any live sandbox button above to inspect responses at $0.</pre>
     </section>
@@ -201,7 +202,7 @@
     <section id="licensing" class="card">
       <h2>ApexHive Dual Source-Available License (Solo 0 USDC Forever · Commercial Team / Enterprise)</h2>
       <p class="subtitle">
-        <strong>Solo Traders (1 natural person)</strong> run the complete 300-point cross-market core, unlimited accounts, BYO connectors, SQLite journal, and self-host Cloudflare Workers Cron kit forever at <code>0 USDC</code>. Organizations (2+ traders, coaching desks, funded rooms, prop firms) purchase a commercial certificate below.
+        <strong>Solo Traders (1 natural person)</strong> run the complete rule-based risk evaluation core, unlimited accounts, BYO connectors, SQLite journal, and self-host Cloudflare Workers Cron kit forever at <code>0 USDC</code>. Organizations (2+ traders, coaching desks, funded rooms, prop firms) purchase a commercial certificate below.
       </p>
 
       <div class="pricing-grid">
@@ -210,7 +211,7 @@
             <h3>Solo Personal (1 Person)</h3>
             <div class="tier-price">0 USDC</div>
             <ul class="tier-list">
-              <li>100% Full 300-pt Engine Forever (Zero HWID or 24h Lock)</li>
+              <li>100% Full Rule-Based Risk Engine Forever (Zero HWID or 24h Lock)</li>
               <li>FTMO, Tradeify, Apex, Topstep, MFFU + Gold/FX/Perps</li>
               <li>1-Click Self-Host <code>deploy/cloudflare-byo/</code> Telegram/Discord Cron</li>
             </ul>
@@ -258,16 +259,36 @@
             <option value="team" selected>Commercial Team (2–99 Seats) — Founder Early-Bird 99 USDC</option>
             <option value="enterprise">Commercial Enterprise (100+ Seats) — Founder Early-Bird 499 USDC</option>
           </select>
-          <button id="wallet-pay-btn" class="btn btn-primary" type="button" hidden>
+          <button id="wallet-pay-btn" class="btn btn-primary" type="button">
             Pay 99 USDC with Base Wallet
           </button>
         </div>
 
+        <div id="manual-pay-instructions" class="status-box" style="margin-top: 12px;">
+          Send exactly <strong id="pay-amount-label">99 USDC</strong> on <strong>Base Mainnet (Chain ID 8453)</strong> (USDC contract <code>0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913</code>) to treasury <code>0x32eceaC45DBED9E555dAb80346aBd4Ab9C676206</code>, then paste your transaction hash below. Using a Safe, Ledger, mobile wallet, or browser without MetaMask? Generate a challenge and paste your EIP-191 / ERC-1271 signature directly.
+        </div>
+
         <div style="margin-top: 14px;">
-          <label class="field-label" for="manual-tx-input">Already sent Base USDC? Paste transaction hash to challenge &amp; claim:</label>
+          <label class="field-label" for="manual-tx-input">1. Settlement Transaction Hash (Base Mainnet):</label>
           <div class="toolbar">
             <input id="manual-tx-input" class="text-input" style="flex: 1 1 260px;" type="text" placeholder="0x..." autocomplete="off">
-            <button id="manual-verify-btn" class="btn" type="button">Sign &amp; Verify Claim</button>
+            <button id="manual-challenge-btn" class="btn" type="button">Generate Challenge</button>
+            <button id="manual-verify-btn" class="btn btn-primary" type="button">Sign &amp; Verify Claim</button>
+          </div>
+        </div>
+
+        <div id="manual-challenge-box" style="margin-top: 12px;" hidden>
+          <label class="field-label" for="manual-challenge-msg">2. Sign this exact ownership challenge message with your paying wallet or Safe (EIP-191 / ERC-1271):</label>
+          <pre id="manual-challenge-msg" class="code-block" style="margin-bottom: 8px;"></pre>
+          <div class="form-grid">
+            <div>
+              <label class="field-label" for="manual-nonce-input">Challenge Nonce</label>
+              <input id="manual-nonce-input" class="text-input" type="text" placeholder="Auto-filled on Generate Challenge" autocomplete="off">
+            </div>
+            <div>
+              <label class="field-label" for="manual-sig-input">Wallet / Safe Signature (0x...)</label>
+              <input id="manual-sig-input" class="text-input" type="text" placeholder="0x... (optional if browser wallet connected)" autocomplete="off">
+            </div>
           </div>
         </div>
 

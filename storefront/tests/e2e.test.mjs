@@ -134,7 +134,7 @@ async function killProcessTree(proc) {
   await new Promise((r) => setTimeout(r, 500));
 }
 
-test('End-to-end evalshield-copilot v3.0 Wrangler DO lock + ERC-1271 + Open 300-pt Sandbox + Playwright UI', async () => {
+test('End-to-end evalshield-copilot v3.0.2 Wrangler DO lock + ERC-1271 + Open Risk Sandbox + Playwright UI', async () => {
   const payer = privateKeyToAccount('0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80');
   const attacker = privateKeyToAccount('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
   const smartWalletAddr = '0x4444444444444444444444444444444444444444';
@@ -417,7 +417,7 @@ test('End-to-end evalshield-copilot v3.0 Wrangler DO lock + ERC-1271 + Open 300-
     ]);
     assert.deepEqual([swRes1.status, swRes2.status].sort((a, b) => a - b), [200, 403]);
 
-    // 2c. Live Open 300-pt Sandbox API checks against real Wrangler workerd
+    // 2c. Live Open Risk Sandbox API checks against real Wrangler workerd
     const publicMc = await fetch(`${baseUrl}/api/cloud/monte-carlo`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -474,7 +474,7 @@ test('End-to-end evalshield-copilot v3.0 Wrangler DO lock + ERC-1271 + Open 300-
     const { chromium } = await import('playwright');
     browser = await chromium.launch({ headless: true });
 
-    // 3a) No-wallet desktop check: #wallet-pay-btn must remain CSS hidden
+    // 3a) No-wallet desktop check: #wallet-pay-btn remains visible with manual/Safe instructions (no dead-end), plus manual challenge & verify works without window.ethereum
     {
       const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
       const page = await ctx.newPage();
@@ -485,15 +485,35 @@ test('End-to-end evalshield-copilot v3.0 Wrangler DO lock + ERC-1271 + Open 300-
       page.on('pageerror', (e) => errors.push(e.message));
 
       await page.goto(baseUrl, { waitUntil: 'networkidle' });
-      const hidden = await page.locator('#wallet-pay-btn').evaluate(
-        (el) => el.hasAttribute('hidden') && getComputedStyle(el).display === 'none' && el.offsetParent === null
+      const walletBtnVisible = await page.locator('#wallet-pay-btn').evaluate(
+        (el) => !el.hasAttribute('hidden') && getComputedStyle(el).display !== 'none' && el.offsetParent !== null
       );
-      assert.equal(hidden, true);
+      assert.equal(walletBtnVisible, true);
+      const solOptCount = await page.locator('#inp-symbol option[value="SOL-PERP"]').count();
+      assert.equal(solOptCount, 1);
+      assert.ok((await page.locator('#mc-run-btn').innerText()).includes('25,000'));
+
+      // Clicking Pay without window.ethereum shows clear Base USDC instructions rather than dead-ending
+      await page.click('#wallet-pay-btn');
+      await page.waitForSelector('#checkout-status.warn:not([hidden])');
+      assert.ok((await page.locator('#checkout-status').innerText()).includes('No browser wallet detected'));
+
       const bodyText = await page.locator('body').innerText();
       assert.ok(bodyText.includes('apexhive.hq@proton.me'));
       assert.ok(bodyText.includes('Human-in-the-Loop Firewall'));
       await page.click('#cloud-blackouts-btn');
-      await page.waitForFunction(() => document.getElementById('cloud-preview-output')?.textContent?.includes('solo_free_300pt'));
+      await page.waitForFunction(() => document.getElementById('cloud-preview-output')?.textContent?.includes('solo_free'));
+
+      // Manual Safe/Wallet challenge -> sign -> verify works with ZERO window.ethereum
+      await page.fill('#manual-tx-input', txTeamApi);
+      await page.click('#manual-challenge-btn');
+      await page.waitForFunction(() => Boolean(document.getElementById('manual-nonce-input')?.value));
+      const challengeMsg = await page.locator('#manual-challenge-msg').innerText();
+      const manualSig = await payer.signMessage({ message: challengeMsg });
+      await page.fill('#manual-sig-input', manualSig);
+      await page.click('#manual-verify-btn');
+      await page.waitForSelector('#checkout-result:not([hidden])');
+      assert.ok((await page.locator('#license-token-text').innerText()).trim().startsWith('EVALSHIELD-PRO-v1.'));
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
       assert.deepEqual(errors, []);
       await ctx.close();
