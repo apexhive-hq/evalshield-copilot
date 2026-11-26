@@ -1,4 +1,4 @@
-import { getContractSpec } from './contracts.js';
+import { getContractSpec, PROP_FIRM_PRESETS } from './contracts.js';
 import { evaluateSessionQuality } from './session.js';
 import type {
   AccountRiskProfile,
@@ -118,12 +118,32 @@ export function evaluateRiskCheck(
 ): RiskCheckResult {
   const { account } = input;
   const spec = getContractSpec(input.symbol, customSpec);
+  const assetClass = spec.assetClass ?? 'FUTURES';
+  const preset = PROP_FIRM_PRESETS[account.presetId] ?? PROP_FIRM_PRESETS.custom;
 
   const userStopTicks = Math.max(0, Math.floor(input.userStopTicks));
   const atr14 = input.atr14 ?? 0;
   const kAtr = input.kAtr ?? 1.0;
   const slippageTicks = input.slippageTicks ?? 1;
-  const roundTripCommission = input.roundTripCommission ?? spec.defaultRoundTripCommission;
+  const spreadTicks = Math.max(0, input.spreadTicks ?? 0);
+  const spreadCostUsd = round2(spreadTicks * spec.tickValue);
+
+  // Crypto Perps Maker/Taker & Funding Fee Deduction
+  const notionalUsd = input.notionalUsd ?? (assetClass === 'CRYPTO_PERP' ? 10_000 : 0);
+  const feeBps = input.isMakerOrder ? (spec.makerFeeBps ?? 1.5) : (spec.takerFeeBps ?? 4.5);
+  const perpFeesUsd =
+    assetClass === 'CRYPTO_PERP' && notionalUsd > 0
+      ? round2(notionalUsd * (feeBps / 10_000) * 2)
+      : 0;
+  const estimatedFundingUsd =
+    assetClass === 'CRYPTO_PERP' && notionalUsd > 0 && input.fundingRateHourly !== undefined
+      ? round2(notionalUsd * Math.abs(input.fundingRateHourly) * Math.max(0, input.expectedHoldHours ?? 8))
+      : 0;
+
+  const roundTripCommission =
+    input.roundTripCommission ??
+    (assetClass === 'CRYPTO_PERP' ? round2(perpFeesUsd + estimatedFundingUsd) : spec.defaultRoundTripCommission);
+
   const maxRiskPct = input.maxRiskPerTradePct ?? 0.2;
   const maxRiskPerTradeUsd = input.maxRiskPerTradeUsd ?? Number.POSITIVE_INFINITY;
   const runwayTrades = Math.max(1, Math.floor(input.runwayTrades ?? 4));
@@ -137,12 +157,13 @@ export function evaluateRiskCheck(
 
   const dd = computeDrawdownState(account);
 
-  // Consistency calculation
+  // Consistency calculation & safe daily profit headroom
   const dailyList = account.dailyRealizedPnls ?? [];
   const totalProfit = round2(account.realizedBalance - account.startingBalance);
   const maxDayProfit = round2(Math.max(0, ...dailyList, account.dayRealizedPnl));
   const consistencyRatio =
     totalProfit > 0 ? round2(maxDayProfit / totalProfit) : maxDayProfit > 0 ? 1 : 0;
+  const hasConsistencyRule = account.consistencyCap > 0 && account.consistencyCap < 1;
   const dailyProfitSoftCap = round2(account.consistencyCap * account.profitTarget);
   const requiredTotalProfitForPayout = round2(
     Math.max(
@@ -150,21 +171,37 @@ export function evaluateRiskCheck(
       maxDayProfit > 0 && account.consistencyCap > 0 ? maxDayProfit / account.consistencyCap : account.profitTarget
     )
   );
-  const nearConsistencyCap =
-    dailyProfitSoftCap > 0 && account.dayRealizedPnl >= 0.85 * dailyProfitSoftCap;
+  const remainingSafeAdditionalProfitUsd = hasConsistencyRule
+    ? Math.max(0, round2(dailyProfitSoftCap - account.dayRealizedPnl))
+    : Math.max(0, round2(account.profitTarget - totalProfit));
+  const dailyCap85Reached =
+    hasConsistencyRule && dailyProfitSoftCap > 0 && account.dayRealizedPnl >= 0.85 * dailyProfitSoftCap;
+  const nearConsistencyCap = dailyCap85Reached;
+
+  const atrTicks = atr14 > 0 ? Math.ceil((kAtr * atr14) / spec.tickSize) : 0;
+  const stopTicksEffective = Math.max(userStopTicks, atrTicks, 1);
+  const spreadToStopRatio = stopTicksEffective > 0 ? round2(spreadTicks / stopTicksEffective) : 0;
+  const spreadDragWarning = spreadToStopRatio >= 0.25;
 
   const bufferPctRemaining = dd.remainingBuffer / dd.effectiveMaxBuffer;
   const session = evaluateSessionQuality({
     ...input.sessionFilter,
     atr14: input.sessionFilter?.atr14 ?? atr14,
     bufferPctRemaining,
-    nearConsistencyCap
+    nearConsistencyCap,
+    newsRestriction: input.sessionFilter?.newsRestriction ?? account.newsRestriction ?? preset.newsRestriction,
+    accountStage: input.sessionFilter?.accountStage ?? account.accountStage ?? 'EVAL',
+    assetClass,
+    symbol: spec.symbol,
+    spreadTicks,
+    stopTicksEffective
   });
 
-  const atrTicks = atr14 > 0 ? Math.ceil((kAtr * atr14) / spec.tickSize) : 0;
-  const stopTicksEffective = Math.max(userStopTicks, atrTicks, 1);
   const lossPerContract = round2(
-    stopTicksEffective * spec.tickValue + roundTripCommission + slippageTicks * spec.tickValue
+    stopTicksEffective * spec.tickValue +
+      roundTripCommission +
+      slippageTicks * spec.tickValue +
+      spreadCostUsd
   );
 
   const amberMultiplierApplied = dd.status === 'AMBER_CAUTION' ? 0.5 : 1.0;
@@ -196,14 +233,22 @@ export function evaluateRiskCheck(
     const microLoss =
       stopTicksEffective * microSpec.tickValue +
       microSpec.defaultRoundTripCommission +
-      slippageTicks * microSpec.tickValue;
+      slippageTicks * microSpec.tickValue +
+      spreadTicks * microSpec.tickValue;
     const microCount = microLoss > 0 ? Math.floor(tradeRiskBudget / microLoss) : 0;
     microFallbackSymbol = microSpec.symbol;
     microFallbackContracts = Math.min(account.maxContractsCap * 10, microCount);
   }
 
+  const resetTz = account.rolloverResetTimeZone ?? preset.rolloverResetTimeZone;
+  const resetHour = preset.resetHourLocal;
+  const rolloverResetNotice = resetTz
+    ? `Daily drawdown resets at ${String(resetHour ?? 17).padStart(2, '0')}:00 ${resetTz}${session.usEuDstMismatchActive ? ' (DST mismatch -1h overlap shift)' : ''}.`
+    : null;
+
   return {
     symbol: spec.symbol,
+    assetClass,
     effectiveHwm: dd.effectiveHwm,
     floor: dd.floor,
     currentEquity: dd.currentEquity,
@@ -215,6 +260,12 @@ export function evaluateRiskCheck(
     amberMultiplierApplied,
     stopTicksEffective,
     lossPerContract,
+    spreadTicks,
+    spreadCostUsd,
+    spreadToStopRatio,
+    spreadDragWarning,
+    perpFeesUsd,
+    estimatedFundingUsd,
     tradeRiskBudget,
     maxContractsAllowed,
     microFallbackSymbol,
@@ -223,8 +274,11 @@ export function evaluateRiskCheck(
     maxDayProfit,
     consistencyRatio,
     dailyProfitSoftCap,
+    remainingSafeAdditionalProfitUsd,
     requiredTotalProfitForPayout,
     nearConsistencyCap,
+    dailyCap85Reached,
+    rolloverResetNotice,
     session
   };
 }

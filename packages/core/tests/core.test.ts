@@ -3,15 +3,20 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 import test from 'node:test';
 import {
   applyEodSessionRollover,
+  buildFifteenSecondBrief,
   computeDrawdownState,
+  evaluatePortfolioGuard,
   evaluateRiskCheck,
   evaluateSessionQuality,
   getContractSpec,
   getMaxAllowedAccounts,
   isGlobexClosedUtc,
+  isUsEuDstMismatchWeek,
   normalizeSymbolRoot,
+  parseRssAtomHeadlineBrief,
   PROP_FIRM_PRESETS,
   TOKEN_PREFIX,
+  validateSafeConnectorUrl,
   verifyEvalShieldLicenseToken,
   type AccountRiskProfile
 } from '../src/index.js';
@@ -247,4 +252,205 @@ test('Ed25519 EVALSHIELD-PRO-v1 license verification & account tier limits', () 
   });
   assert.equal(bad.valid, false);
   assert.equal(getMaxAllowedAccounts(bad), null);
+
+  // Team ($99 Early-Bird) and Enterprise ($499 Early-Bird) WinRAR commercial tokens verify cleanly
+  for (const tier of ['team', 'enterprise'] as const) {
+    const commPayloadB64 = Buffer.from(
+      JSON.stringify({ ...payload, tier, maxAccounts: tier === 'team' ? 99 : null }),
+      'utf8'
+    ).toString('base64url');
+    const commSig = sign(null, Buffer.from(`${TOKEN_PREFIX}${commPayloadB64}`, 'utf8'), privateKey).toString('base64url');
+    const verified = verifyEvalShieldLicenseToken(`${TOKEN_PREFIX}${commPayloadB64}.${commSig}`, {
+      publicKeySpkiB64: spkiB64
+    });
+    assert.equal(verified.valid, true);
+    assert.equal(verified.tier, tier);
+  }
+});
+
+test('v3.0 Cross-Asset Specs, XAUUSD spread R-drag, Crypto Perps fees/funding, and remaining safe headroom', () => {
+  assert.equal(normalizeSymbolRoot('XAU/USD'), 'XAUUSD');
+  assert.equal(normalizeSymbolRoot('BTCUSDT'), 'BTC-PERP');
+  assert.equal(getContractSpec('XAUUSD').assetClass, 'FX_METAL');
+  assert.equal(getContractSpec('BTC-PERP').assetClass, 'CRYPTO_PERP');
+
+  const ftmoAcc = makeBaseAccount({
+    presetId: 'ftmo_100k_1step',
+    startingBalance: 100_000,
+    realizedBalance: 103_000,
+    dayRealizedPnl: 4_300,
+    consistencyCap: 0.5,
+    profitTarget: 10_000,
+    drawdownMode: 'EOD_TRAILING',
+    maxDrawdown: 10_000,
+    dailyLossLimit: 3_000,
+    newsRestriction: 'STRICT_ALL_ORDERS_BAN'
+  });
+
+  // 17:02 ET Thursday -> FX Rollover Spread Window + 85% Consistency Cap Check
+  const rolloverUtc = Date.UTC(2026, 2, 19, 21, 2, 0); // March 19 2026 is ALSO US/EU DST mismatch week!
+  const goldRes = evaluateRiskCheck({
+    account: ftmoAcc,
+    symbol: 'XAUUSD',
+    userStopTicks: 200,
+    spreadTicks: 75, // 75 pips rollover widening
+    sessionFilter: { nowUtcMs: rolloverUtc }
+  });
+  assert.equal(goldRes.spreadDragWarning, true);
+  assert.equal(goldRes.dailyCap85Reached, true);
+  assert.equal(goldRes.remainingSafeAdditionalProfitUsd, 700);
+  assert.ok(goldRes.session.flags.includes('FX_ROLLOVER_SPREAD_WINDOW'));
+  assert.ok(goldRes.session.flags.includes('SPREAD_R_DRAG_HIGH'));
+  assert.ok(goldRes.session.flags.includes('US_EU_DST_MISMATCH_WEEK'));
+
+  // Crypto perp taker fee + 8h funding fee calculation
+  const btcRes = evaluateRiskCheck({
+    account: makeBaseAccount({ presetId: 'custom', startingBalance: 50_000, realizedBalance: 50_000 }),
+    symbol: 'BTC-PERP',
+    userStopTicks: 500,
+    notionalUsd: 20_000,
+    isMakerOrder: false,
+    fundingRateHourly: 0.0005,
+    expectedHoldHours: 8,
+    sessionFilter: { nowUtcMs: rolloverUtc }
+  });
+  assert.equal(btcRes.assetClass, 'CRYPTO_PERP');
+  assert.equal(btcRes.perpFeesUsd, 18); // 20000 * 4.5bps * 2
+  assert.equal(btcRes.estimatedFundingUsd, 80); // 20000 * 0.0005 * 8
+  assert.ok(!btcRes.session.flags.includes('SESSION_CLOSED'));
+});
+
+test('v3.0 Prop-Firm News Blackout Distinction & US/EU DST mismatch calendar', () => {
+  const dstWeek = isUsEuDstMismatchWeek(Date.UTC(2026, 2, 18, 14, 0, 0));
+  assert.equal(dstWeek.active, true);
+  assert.equal(dstWeek.diffHours, 5);
+
+  const normalWeek = isUsEuDstMismatchWeek(Date.UTC(2026, 5, 10, 14, 0, 0));
+  assert.equal(normalWeek.active, false);
+  assert.equal(normalWeek.diffHours, 6);
+
+  const cpiMs = Date.UTC(2026, 5, 10, 12, 30, 0);
+  const nowInside2m = cpiMs - 60_000;
+  // FTMO strict ±2m SL/TP ban
+  const ftmo = evaluateSessionQuality({
+    nowUtcMs: nowInside2m,
+    newsRestriction: 'STRICT_ALL_ORDERS_BAN',
+    eventWindows: [{ name: 'US CPI', timestampUtcMs: cpiMs }]
+  });
+  assert.equal(ftmo.sessionAction, 'STAND_DOWN');
+  assert.ok(ftmo.flags.includes('STRICT_NEWS_SL_TP_BAN'));
+
+  // Tradeify / Topstep news exempt -> advisory only
+  const exempt = evaluateSessionQuality({
+    nowUtcMs: nowInside2m,
+    newsRestriction: 'EXEMPT',
+    eventWindows: [{ name: 'US CPI', timestampUtcMs: cpiMs }]
+  });
+  assert.notEqual(exempt.sessionAction, 'STAND_DOWN');
+  assert.ok(exempt.flags.includes('NEWS_VOLATILITY_ADVISORY'));
+
+  // MFFU Eval = exempt, MFFU Funded = blocked
+  const mffuEval = evaluateSessionQuality({
+    nowUtcMs: nowInside2m,
+    newsRestriction: 'FUNDED_ONLY_BAN',
+    accountStage: 'EVAL',
+    eventWindows: [{ name: 'US CPI', timestampUtcMs: cpiMs }]
+  });
+  assert.notEqual(mffuEval.sessionAction, 'STAND_DOWN');
+
+  const mffuFunded = evaluateSessionQuality({
+    nowUtcMs: nowInside2m,
+    newsRestriction: 'FUNDED_ONLY_BAN',
+    accountStage: 'FUNDED',
+    eventWindows: [{ name: 'US CPI', timestampUtcMs: cpiMs }]
+  });
+  assert.equal(mffuFunded.sessionAction, 'STAND_DOWN');
+});
+
+test('v3.0 Multi-Account Portfolio Guard detects cross-account anti-hedging, ES+NQ correlation & copier orphan', () => {
+  const acc1 = makeBaseAccount({ id: 'acc_1', name: 'Tradeify #1', presetId: 'tradeify_50k_growth' });
+  const acc2 = makeBaseAccount({ id: 'acc_2', name: 'Tradeify #2', presetId: 'tradeify_50k_growth' });
+
+  const conflict = evaluatePortfolioGuard(
+    [
+      { accountId: 'acc_1', symbol: 'ES', side: 'LONG', qty: 2, antiHedgingBanned: true },
+      { accountId: 'acc_2', symbol: 'NQ', side: 'SHORT', qty: 2, antiHedgingBanned: true }
+    ],
+    [acc1, acc2]
+  );
+  assert.equal(conflict.safeToProceed, false);
+  assert.ok(conflict.alerts.some((a) => a.code === 'CROSS_ACCOUNT_ANTI_HEDGE_VIOLATION'));
+
+  const correlatedAndSkewed = evaluatePortfolioGuard(
+    [
+      { accountId: 'acc_1', symbol: 'ES', side: 'LONG', qty: 2 },
+      { accountId: 'acc_1', symbol: 'NQ', side: 'LONG', qty: 2 }
+    ],
+    [acc1, acc2]
+  );
+  assert.ok(correlatedAndSkewed.alerts.some((a) => a.code === 'CORRELATED_EXPOSURE_MULTIPLIER'));
+  assert.ok(correlatedAndSkewed.alerts.some((a) => a.code === 'COPIER_ORPHAN_OR_SKEW_DETECTED'));
+});
+
+test('v3.0 SSRF Policy Guard, RSS 3-item cap & Mocked Gamma/Hyperliquid 15s Brief', async () => {
+  assert.throws(() => validateSafeConnectorUrl('https://x.com/MacroAlf'), /X_SCRAPING_DISALLOWED/);
+  assert.throws(() => validateSafeConnectorUrl('https://api.binance.com/api/v3/ticker'), /GEO_RESTRICTED/);
+  assert.throws(() => validateSafeConnectorUrl('https://127.0.0.1/feed.xml'), /SSRF_BLOCKED/);
+  assert.doesNotThrow(() => validateSafeConnectorUrl('https://feeds.reuters.com/reuters/businessNews'));
+
+  const mockRss = `<?xml version="1.0"?><rss><channel>
+    <item><title>FOMC Minutes Show Caution</title><link>https://example.com/1</link></item>
+    <item><title>Sports News Ignored</title><link>https://example.com/2</link></item>
+    <item><title>CPI Core Inflation Eases</title><link>https://example.com/3</link></item>
+    <item><title>Fed Chair Speech Tomorrow</title><link>https://example.com/4</link></item>
+    <item><title>FOMC Rate Decision Preview</title><link>https://example.com/5</link></item>
+  </channel></rss>`;
+  const parsed = parseRssAtomHeadlineBrief(mockRss, ['FOMC', 'CPI', 'Fed'], 'TestRSS', 5);
+  assert.equal(parsed.length, 3); // Strictly hard-capped at 3 bullets!
+  assert.ok(parsed.every((p) => !p.title.includes('Sports')));
+
+  const mockFetch = (async (input: string | URL) => {
+    const url = String(input);
+    if (url.includes('gamma-api.polymarket.com')) {
+      return new Response(
+        JSON.stringify([
+          {
+            question: 'Will the Fed cut rates in December?',
+            outcomePrices: '["0.68", "0.32"]',
+            oneDayPriceChange: 0.04,
+            volume24hr: 1250000,
+            closed: false,
+            endDate: '2027-01-01T00:00:00Z'
+          }
+        ]),
+        { status: 200 }
+      );
+    }
+    if (url.includes('api.hyperliquid.xyz/info')) {
+      return new Response(
+        JSON.stringify([
+          { universe: [{ name: 'BTC' }, { name: 'ETH' }] },
+          [
+            { markPx: '95200.5', funding: '0.0006', openInterest: '41000', dayNtlVlm: '950000000' },
+            { markPx: '3420.1', funding: '0.0001', openInterest: '180000', dayNtlVlm: '420000000' }
+          ]
+        ]),
+        { status: 200 }
+      );
+    }
+    return new Response(mockRss, { status: 200 });
+  }) as typeof fetch;
+
+  const brief = await buildFifteenSecondBrief({
+    nowMs: Date.UTC(2026, 2, 18, 14, 0, 0),
+    polymarketSlugs: ['fed-cut-december'],
+    hyperliquidCoins: ['BTC', 'ETH'],
+    rssSources: [{ url: 'https://feeds.reuters.com/test.xml', label: 'Reuters', keywords: ['FOMC', 'CPI'] }],
+    fetchFn: mockFetch
+  });
+  assert.equal(brief.polymarket[0]?.yesProbabilityPct, 68);
+  assert.equal(brief.polymarket[0]?.expiredOrSettled, false);
+  assert.equal(brief.hyperliquid[0]?.coin, 'BTC');
+  assert.equal(brief.hyperliquid[0]?.extremeFundingAlert, true);
+  assert.equal(brief.rssHighlights.length, 3);
 });

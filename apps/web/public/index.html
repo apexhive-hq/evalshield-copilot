@@ -16,15 +16,37 @@
       </div>
       <div class="badge-row">
         <span id="badge-routing" class="pill">Order Routing: Disabled (Read-Only)</span>
-        <span id="badge-license" class="pill warn">MIT Free (Local Core)</span>
+        <span id="badge-license" class="pill">Solo $0 (Full 300-pt Local)</span>
       </div>
     </div>
   </header>
 
   <main class="container">
     <div class="firewall-banner">
-      <strong>Human-in-the-Loop Firewall:</strong> Local-first SQLite WAL execution journal and deterministic prop-firm risk diagnostics. Zero broker API credentials, zero automated order placement, and zero directional trade calls.
+      <strong>Human-in-the-Loop Firewall (WinRAR Solo $0 Full-Open):</strong> Local-first SQLite WAL execution journal, 15-second cross-market risk brief, and deterministic prop-firm diagnostics. Zero HWID locks, zero order routing, and zero data telemetry.
     </div>
+
+    <section class="card" aria-labelledby="brief-heading">
+      <div class="split-head">
+        <h2 id="brief-heading" style="margin: 0;">0. 15-Second Pre-Market &amp; Cross-Asset Risk Brief</h2>
+        <button id="refresh-brief-btn" class="btn" type="button">Refresh Live Feed</button>
+      </div>
+      <div class="metrics-grid">
+        <div class="metric">
+          <div class="metric-label">DST &amp; Rollover Clock</div>
+          <div id="brief-clock" class="metric-value" style="font-size: 0.92rem;">Checking...</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Hyperliquid BTC/ETH Funding</div>
+          <div id="brief-hl" class="metric-value" style="font-size: 0.92rem;">-</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Polymarket Watchlist</div>
+          <div id="brief-poly" class="metric-value" style="font-size: 0.92rem;">No custom slugs yet</div>
+        </div>
+      </div>
+      <div id="brief-rss" class="status-box" style="margin-top: 10px;" hidden></div>
+    </section>
 
     <section class="card" aria-labelledby="accounts-heading">
       <div class="split-head">
@@ -47,8 +69,12 @@
             <option value="topstep_150k">Topstep $150K (EOD)</option>
             <option value="apex_50k_intraday" selected>Apex $50K (Intraday Trailing)</option>
             <option value="apex_50k_eod">Apex $50K (EOD)</option>
-            <option value="mffu_50k_starter">MFFU $50K Starter (EOD)</option>
-            <option value="custom">Custom Profile</option>
+            <option value="mffu_50k_starter">MFFU $50K Starter (EOD / Funded ±5m News)</option>
+            <option value="ftmo_100k_2step">FTMO $100K 2-Step (Static DD / Strict ±2m)</option>
+            <option value="ftmo_100k_1step">FTMO $100K 1-Step (50% Cons / Strict ±2m)</option>
+            <option value="tradeify_50k_growth">Tradeify $50K Growth (35% Cons / Anti-Hedge)</option>
+            <option value="tradeify_50k_straight">Tradeify $50K Straight (20% Cons / Anti-Hedge)</option>
+            <option value="custom">Custom Cross-Market Profile</option>
           </select>
         </div>
         <div style="display: flex; align-items: flex-end;">
@@ -89,14 +115,18 @@
 
       <div class="form-grid">
         <div>
-          <label class="field-label" for="risk-symbol">CME Contract</label>
+          <label class="field-label" for="risk-symbol">Cross-Market Asset</label>
           <select id="risk-symbol" class="text-input">
             <option value="ES" selected>ES (E-mini S&amp;P — $12.50/tick)</option>
             <option value="MES">MES (Micro S&amp;P — $1.25/tick)</option>
             <option value="NQ">NQ (E-mini Nasdaq — $5.00/tick)</option>
             <option value="MNQ">MNQ (Micro Nasdaq — $0.50/tick)</option>
-            <option value="GC">GC (Gold — $10.00/tick)</option>
+            <option value="GC">GC (CME Gold — $10.00/tick)</option>
             <option value="MGC">MGC (Micro Gold — $1.00/tick)</option>
+            <option value="XAUUSD">XAUUSD (Spot Gold CFD — $1.00/0.01)</option>
+            <option value="EURUSD">EURUSD (FX Standard Lot — $10/pip)</option>
+            <option value="BTC-PERP">BTC-PERP (Hyperliquid/Perp — $1/tick)</option>
+            <option value="ETH-PERP">ETH-PERP (Perp — $0.10/tick)</option>
             <option value="CL">CL (WTI Crude — $10.00/tick)</option>
             <option value="MCL">MCL (Micro Crude — $1.00/tick)</option>
           </select>
@@ -104,6 +134,10 @@
         <div>
           <label class="field-label" for="risk-stop-ticks">Stop Distance (Ticks)</label>
           <input id="risk-stop-ticks" class="text-input" type="number" value="16" min="1">
+        </div>
+        <div>
+          <label class="field-label" for="risk-spread-ticks">Spread (Ticks / Rollover)</label>
+          <input id="risk-spread-ticks" class="text-input" type="number" value="0" min="0">
         </div>
         <div>
           <label class="field-label" for="risk-atr">14-Bar ATR (Points)</label>
@@ -129,7 +163,11 @@
           <div id="out-buffer" class="metric-value">-</div>
         </div>
         <div class="metric">
-          <div class="metric-label">Max Contracts Allowed</div>
+          <div class="metric-label">Safe Daily Headroom (Consistency)</div>
+          <div id="out-headroom" class="metric-value">-</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Max Contracts / Units</div>
           <div id="out-contracts" class="metric-value">-</div>
         </div>
         <div class="metric">
@@ -143,6 +181,62 @@
       </div>
 
       <div id="risk-advisory" class="status-box" hidden></div>
+
+      <details style="margin-top: 14px; border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
+        <summary style="cursor: pointer; font-weight: 600;">Log Pre-Trade Audit Snapshot &amp; Raw Thesis Note</summary>
+        <div class="form-grid" style="margin-top: 12px;">
+          <div>
+            <label class="field-label" for="pt-side">Planned Side</label>
+            <select id="pt-side" class="text-input">
+              <option value="LONG">LONG</option>
+              <option value="SHORT">SHORT</option>
+            </select>
+          </div>
+          <div>
+            <label class="field-label" for="pt-qty">Planned Qty</label>
+            <input id="pt-qty" class="text-input" type="number" value="1" step="0.1" min="0.01">
+          </div>
+          <div style="grid-column: span 2;">
+            <label class="field-label" for="pt-thesis">Pre-Trade Thesis / Emotional State</label>
+            <input id="pt-thesis" class="text-input" type="text" placeholder="e.g. London sweep reclaim above PDL, inside 50% size">
+          </div>
+        </div>
+        <div class="toolbar" style="margin-top: 10px;">
+          <button id="save-pretrade-btn" class="btn btn-primary" type="button">Record Pre-Trade Snapshot</button>
+        </div>
+        <div id="pretrade-status" class="status-box" hidden></div>
+      </details>
+
+      <details style="margin-top: 12px; border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
+        <summary style="cursor: pointer; font-weight: 600;">BYO Pluggable Connectors (RSS / Polymarket Slug / Custom Asset) &amp; Multi-Account Portfolio Guard</summary>
+        <div class="form-grid" style="margin-top: 12px;">
+          <div>
+            <label class="field-label" for="conn-kind">Connector Kind</label>
+            <select id="conn-kind" class="text-input">
+              <option value="rss">RSS / Atom Feed (Keyword Filter, Max 3)</option>
+              <option value="polymarket_slug">Polymarket Event Slug</option>
+              <option value="custom_asset">Custom Asset Profile JSON Target</option>
+            </select>
+          </div>
+          <div>
+            <label class="field-label" for="conn-label">Label</label>
+            <input id="conn-label" class="text-input" type="text" placeholder="e.g. Reuters Macro RSS">
+          </div>
+          <div>
+            <label class="field-label" for="conn-target">HTTPS URL / Slug / Symbol</label>
+            <input id="conn-target" class="text-input" type="text" placeholder="https://... or us-cpi-slug">
+          </div>
+          <div>
+            <label class="field-label" for="conn-keywords">Filter Keywords (comma-sep)</label>
+            <input id="conn-keywords" class="text-input" type="text" placeholder="FOMC, CPI, Gold">
+          </div>
+        </div>
+        <div class="toolbar" style="margin-top: 10px;">
+          <button id="add-conn-btn" class="btn" type="button">Add BYO Connector</button>
+          <button id="run-portfolio-guard-btn" class="btn" type="button">Scan Multi-Account Anti-Hedge</button>
+        </div>
+        <div id="conn-status" class="status-box" hidden></div>
+      </details>
     </section>
 
     <section class="card" aria-labelledby="journal-heading">
@@ -268,9 +362,9 @@
     </section>
 
     <section class="card" aria-labelledby="license-heading">
-      <h2 id="license-heading">5. Cloud Pro API Token Activation (Ed25519)</h2>
+      <h2 id="license-heading">5. Commercial Desk License (WinRAR Model: $0 Solo Always Open)</h2>
       <p style="color: var(--muted); margin-top: 0;">
-        MIT Local Core runs unlimited local accounts, drawdown shields, and SQLite CSV journaling forever at <code>$0</code>. Activate your Base USDC Ed25519 token (<code>EVALSHIELD-PRO-v1...</code>) from Solo (<code>29 USDC</code>) or Team (<code>99 USDC</code>) checkout for Hosted Cloud Pro API access (server-side 25,000-path Monte Carlo, CME macro blackout feeds, canonical firm presets, and Discord/Telegram alert relays).
+        Solo traders use the full 300-point cross-market engine, unlimited accounts, BYO connectors, and SQLite journal forever at <code>0 USDC</code>. Commercial desks (2–99 seats: <code>Founder Early-Bird 99 USDC</code>; 100+ seats Enterprise: <code>Founder Early-Bird 499 USDC</code>) can activate their Base USDC Ed25519 certificate (<code>EVALSHIELD-PRO-v1...</code>) below.
       </p>
       <div class="toolbar">
         <input id="license-token-input" class="text-input" style="flex: 1 1 300px;" type="text" placeholder="EVALSHIELD-PRO-v1...." autocomplete="off">
@@ -282,7 +376,7 @@
 
   <footer class="site-footer">
     <div class="container footer-inner">
-      <div>evalshield-copilot — MIT Open-Core Prop-Firm Risk &amp; Discipline Co-Pilot</div>
+      <div>evalshield-copilot — WinRAR Dual-Licensed Cross-Market Risk Co-Pilot (Solo 0 USDC)</div>
       <div>Support: <a href="mailto:apexhive.hq@proton.me">apexhive.hq@proton.me</a></div>
     </div>
   </footer>

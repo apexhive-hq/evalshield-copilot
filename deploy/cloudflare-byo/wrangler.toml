@@ -1,0 +1,22 @@
+name = "evalshield-byo-sentinel"
+main = "src/index.ts"
+compatibility_date = "2025-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[durable_objects.bindings]]
+name = "BYO_STATE"
+class_name = "BYOStateDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["BYOStateDO"]
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+[vars]
+POLL_COINS = "BTC,ETH,SOL"
+POLYMARKET_SLUGS = ""
+NEWS_RESTRICTION = "STRICT_ALL_ORDERS_BAN"
+BRIEF_UTC_HOUR = "13"
+EXTREME_FUNDING_HOURLY = "0.0005"

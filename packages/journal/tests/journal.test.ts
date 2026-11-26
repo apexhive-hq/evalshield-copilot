@@ -240,3 +240,167 @@ test('HTTP server unlocks local MIT accounts, enforces strict CORS, validates Ed
     db.close();
   }
 });
+
+test('v3.0 pretrade audits, SSRF-safe BYO connectors, custom assets, 15s brief, and portfolio anti-hedge guard', async () => {
+  const db = new EvalShieldDb(':memory:');
+  const acc1 = db.createAccount({ name: 'Tradeify Growth #1', presetId: 'tradeify_50k_growth' });
+  const acc2 = db.createAccount({ name: 'Tradeify Growth #2', presetId: 'tradeify_50k_growth' });
+
+  const mockFetch = (async (input: string | URL) => {
+    const u = String(input);
+    if (u.includes('gamma-api.polymarket.com')) {
+      return new Response(
+        JSON.stringify([
+          {
+            question: 'Will US CPI exceed 3.0% YoY?',
+            outcomePrices: '["0.42","0.58"]',
+            oneDayPriceChange: 0.03,
+            volume24hr: 500000,
+            closed: false,
+            endDate: '2027-01-01T00:00:00Z'
+          }
+        ]),
+        { status: 200 }
+      );
+    }
+    if (u.includes('api.hyperliquid.xyz/info')) {
+      return new Response(
+        JSON.stringify([
+          { universe: [{ name: 'BTC' }, { name: 'ETH' }, { name: 'SOL' }] },
+          [
+            { markPx: '96000', funding: '0.0007', openInterest: '39000', dayNtlVlm: '900000000' },
+            { markPx: '3500', funding: '0.0001', openInterest: '150000', dayNtlVlm: '400000000' },
+            { markPx: '210', funding: '0.0002', openInterest: '900000', dayNtlVlm: '300000000' }
+          ]
+        ]),
+        { status: 200 }
+      );
+    }
+    return new Response(
+      `<rss><channel>
+        <item><title>CPI Report Sparks Metals Bid</title><link>https://reuters.com/1</link></item>
+        <item><title>Football Finals Weekend</title><link>https://reuters.com/2</link></item>
+        <item><title>FOMC Minutes Highlight Gold Volatility</title><link>https://reuters.com/3</link></item>
+      </channel></rss>`,
+      { status: 200 }
+    );
+  }) as typeof fetch;
+
+  const server = createEvalShieldHttpServer({ db, fetchFn: mockFetch });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const { port } = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  try {
+    // 1. Record Pre-Trade Snapshot + Raw Thesis
+    const ptPost = await fetch(`${baseUrl}/api/journal/pretrade`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        accountId: acc1.id,
+        symbol: 'XAUUSD',
+        side: 'LONG',
+        plannedQty: 1,
+        stopTicks: 150,
+        thesisNote: 'London low sweep + CPI hedge bid'
+      })
+    });
+    assert.equal(ptPost.status, 201);
+    const ptGet = await fetch(`${baseUrl}/api/journal/pretrade?accountId=${encodeURIComponent(acc1.id)}`);
+    const ptList = (await ptGet.json()) as { audits: Array<{ thesisNote: string; symbol: string }> };
+    assert.equal(ptList.audits[0]?.symbol, 'XAUUSD');
+    assert.equal(ptList.audits[0]?.thesisNote, 'London low sweep + CPI hedge bid');
+
+    // 2. SSRF & X.com blocking vs valid RSS / Polymarket slug / Custom asset creation
+    const xBlocked = await fetch(`${baseUrl}/api/connectors`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'rss', label: 'X Scrape', target: 'https://x.com/trader' })
+    });
+    assert.equal(xBlocked.status, 400);
+
+    const lanBlocked = await fetch(`${baseUrl}/api/connectors`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'rss', label: 'LAN', target: 'https://192.168.1.10/rss.xml' })
+    });
+    assert.equal(lanBlocked.status, 400);
+
+    await fetch(`${baseUrl}/api/connectors`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'polymarket_slug', label: 'US CPI', target: 'us-cpi-above-3' })
+    });
+    await fetch(`${baseUrl}/api/connectors`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'rss',
+        label: 'Reuters Macro',
+        target: 'https://feeds.reuters.com/macro.xml',
+        keywords: ['CPI', 'FOMC']
+      })
+    });
+    await fetch(`${baseUrl}/api/connectors`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'custom_asset',
+        label: 'Micro Dax Custom',
+        target: 'FDXS',
+        metaJson: { tickSize: 1, tickValue: 1, defaultRoundTripCommission: 2.0 }
+      })
+    });
+
+    // Custom asset usable in risk/check
+    const customRisk = await fetch(`${baseUrl}/api/risk/check`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        accountId: acc1.id,
+        symbol: 'FDXS',
+        userStopTicks: 20,
+        sessionFilter: { skipGlobexCheck: true }
+      })
+    });
+    assert.equal(customRisk.status, 200);
+    const customJson = (await customRisk.json()) as { result: { symbol: string; assetClass: string } };
+    assert.equal(customJson.result.symbol, 'FDXS');
+    assert.equal(customJson.result.assetClass, 'CUSTOM');
+
+    // 3. 15-second Brief aggregates Polymarket + Hyperliquid + filtered RSS
+    const briefRes = await fetch(`${baseUrl}/api/brief`);
+    assert.equal(briefRes.status, 200);
+    const briefJson = (await briefRes.json()) as {
+      brief: {
+        polymarket: Array<{ yesProbabilityPct: number }>;
+        hyperliquid: Array<{ coin: string; extremeFundingAlert: boolean }>;
+        rssHighlights: Array<{ title: string }>;
+      };
+    };
+    assert.equal(briefJson.brief.polymarket[0]?.yesProbabilityPct, 42);
+    assert.equal(briefJson.brief.hyperliquid[0]?.extremeFundingAlert, true);
+    assert.equal(briefJson.brief.rssHighlights.length, 2);
+
+    // 4. Portfolio guard flags Tradeify cross-account opposite hedge
+    const portRes = await fetch(`${baseUrl}/api/portfolio/guard`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        positions: [
+          { accountId: acc1.id, symbol: 'ES', side: 'LONG', qty: 2 },
+          { accountId: acc2.id, symbol: 'NQ', side: 'SHORT', qty: 2 }
+        ]
+      })
+    });
+    assert.equal(portRes.status, 200);
+    const portJson = (await portRes.json()) as {
+      guard: { safeToProceed: boolean; alerts: Array<{ code: string }> };
+    };
+    assert.equal(portJson.guard.safeToProceed, false);
+    assert.ok(portJson.guard.alerts.some((a) => a.code === 'CROSS_ACCOUNT_ANTI_HEDGE_VIOLATION'));
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    db.close();
+  }
+});

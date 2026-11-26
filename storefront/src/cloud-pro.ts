@@ -192,7 +192,7 @@ export async function authenticateCloudProRequest(
   if (
     parsed.v !== 1 ||
     parsed.product !== 'evalshield-copilot' ||
-    (parsed.tier !== 'solo' && parsed.tier !== 'team') ||
+    (parsed.tier !== 'solo' && parsed.tier !== 'team' && parsed.tier !== 'enterprise') ||
     typeof parsed.payer !== 'string' ||
     !ADDR_RE.test(parsed.payer) ||
     typeof parsed.txHash !== 'string' ||
@@ -318,35 +318,22 @@ const CME_BLACKOUT_EVENTS = [
 ];
 
 export function buildBlackoutCalendarResponse(auth: CloudAuthResult) {
-  if (!auth.authenticated) {
-    return {
-      ok: true,
-      authenticated: false,
-      tier: 'preview',
-      schemaVersion: '2026.11.v2',
-      cmeMaintenanceDailyEt: '17:00-18:00 America/New_York',
-      summary: {
-        totalTrackedEvents: CME_BLACKOUT_EVENTS.length,
-        note: 'Free public preview only. Pass Authorization: Bearer EVALSHIELD-PRO-v1... for exact buffer windows, volatility multipliers, and per-contract blackout feeds.'
-      },
-      upcomingPreview: CME_BLACKOUT_EVENTS.slice(0, 2).map((e) => ({
-        id: e.id,
-        name: e.name,
-        category: e.category,
-        impact: e.impact,
-        scheduledUtc: e.scheduledUtc ?? null
-      }))
-    };
-  }
-
   return {
     ok: true,
-    authenticated: true,
-    tier: auth.tier,
-    kvClaimed: auth.kvClaimed,
-    schemaVersion: '2026.11.v2',
+    openAccess: true,
+    licenseModel: 'WinRAR Dual (Solo $0 Full 300-pt)',
+    authenticated: auth.authenticated,
+    tier: auth.authenticated ? auth.tier : 'solo_free_300pt',
+    kvClaimed: auth.authenticated ? auth.kvClaimed : false,
+    schemaVersion: '2026.11.v3',
     generatedAtUtc: new Date().toISOString(),
     cmeMaintenanceDailyEt: '17:00-18:00 America/New_York',
+    usEuDstNote: 'Verify 1-hour London/NY overlap shifts during March & Oct/Nov US/EU DST mismatch weeks.',
+    newsPolicyDistinction: {
+      ftmo: 'STRICT_ALL_ORDERS_BAN (±2m including resting SL/TP)',
+      mffu: 'FUNDED_ONLY_BAN (±5m on Funded, Eval exempt)',
+      topstepAndTradeify: 'EXEMPT (slippage advisory only)'
+    },
     volatilityRules: {
       atrExpansionStandDownRatio: 2.0,
       atrExpansionMultiplier: 0.5,
@@ -369,7 +356,8 @@ const CANONICAL_PROP_PRESETS = [
     lockCap: 50_000,
     maxContractsCap: 5,
     consistencyCap: 0.5,
-    profitTarget: 3_000
+    profitTarget: 3_000,
+    newsRestriction: 'EXEMPT'
   },
   {
     id: 'topstep_150k',
@@ -382,7 +370,8 @@ const CANONICAL_PROP_PRESETS = [
     lockCap: 150_000,
     maxContractsCap: 15,
     consistencyCap: 0.5,
-    profitTarget: 9_000
+    profitTarget: 9_000,
+    newsRestriction: 'EXEMPT'
   },
   {
     id: 'apex_50k_intraday',
@@ -395,7 +384,8 @@ const CANONICAL_PROP_PRESETS = [
     lockCap: 50_100,
     maxContractsCap: 10,
     consistencyCap: 0.3,
-    profitTarget: 3_000
+    profitTarget: 3_000,
+    newsRestriction: 'EXEMPT'
   },
   {
     id: 'apex_50k_eod',
@@ -408,11 +398,12 @@ const CANONICAL_PROP_PRESETS = [
     lockCap: 50_100,
     maxContractsCap: 10,
     consistencyCap: 0.3,
-    profitTarget: 3_000
+    profitTarget: 3_000,
+    newsRestriction: 'EXEMPT'
   },
   {
     id: 'mffu_50k_starter',
-    label: 'MyFundedFutures $50K Starter (EOD)',
+    label: 'MyFundedFutures $50K Starter (EOD / Funded ±5m)',
     firm: 'MyFundedFutures',
     startingBalance: 50_000,
     drawdownMode: 'EOD_TRAILING',
@@ -421,55 +412,93 @@ const CANONICAL_PROP_PRESETS = [
     lockCap: 50_100,
     maxContractsCap: 5,
     consistencyCap: 0.5,
-    profitTarget: 3_000
+    profitTarget: 3_000,
+    newsRestriction: 'FUNDED_ONLY_BAN'
+  },
+  {
+    id: 'ftmo_100k_2step',
+    label: 'FTMO $100K 2-Step (Static DD / Strict ±2m)',
+    firm: 'FTMO',
+    startingBalance: 100_000,
+    drawdownMode: 'STATIC',
+    maxDrawdown: 10_000,
+    dailyLossLimit: 5_000,
+    lockCap: null,
+    maxContractsCap: 50,
+    consistencyCap: 1.0,
+    profitTarget: 10_000,
+    newsRestriction: 'STRICT_ALL_ORDERS_BAN',
+    antiHedgingBanned: true
+  },
+  {
+    id: 'ftmo_100k_1step',
+    label: 'FTMO $100K 1-Step (50% Cons / Strict ±2m)',
+    firm: 'FTMO',
+    startingBalance: 100_000,
+    drawdownMode: 'EOD_TRAILING',
+    maxDrawdown: 10_000,
+    dailyLossLimit: 3_000,
+    lockCap: null,
+    maxContractsCap: 50,
+    consistencyCap: 0.5,
+    profitTarget: 10_000,
+    newsRestriction: 'STRICT_ALL_ORDERS_BAN',
+    antiHedgingBanned: true
+  },
+  {
+    id: 'tradeify_50k_growth',
+    label: 'Tradeify $50K Growth (35% Cons / Anti-Hedge)',
+    firm: 'Tradeify',
+    startingBalance: 50_000,
+    drawdownMode: 'EOD_TRAILING',
+    maxDrawdown: 2_000,
+    dailyLossLimit: null,
+    lockCap: 50_100,
+    maxContractsCap: 5,
+    consistencyCap: 0.35,
+    profitTarget: 3_000,
+    newsRestriction: 'EXEMPT',
+    antiHedgingBanned: true
   },
   {
     id: 'tradeify_50k_straight',
-    label: 'Tradeify $50K Straight to Funded (Static)',
+    label: 'Tradeify $50K Straight to Funded (20% Cons)',
     firm: 'Tradeify',
     startingBalance: 50_000,
-    drawdownMode: 'STATIC',
+    drawdownMode: 'EOD_TRAILING',
     maxDrawdown: 2_000,
-    dailyLossLimit: 1_250,
+    dailyLossLimit: null,
     lockCap: 50_100,
     maxContractsCap: 5,
-    consistencyCap: 0.3,
-    profitTarget: 3_000
+    consistencyCap: 0.2,
+    profitTarget: 3_000,
+    newsRestriction: 'EXEMPT',
+    antiHedgingBanned: true
   }
 ];
 
 export function buildCloudPresetsResponse(auth: CloudAuthResult) {
-  const base = {
+  return {
     ok: true,
-    schemaVersion: '2026.11.v2',
+    openAccess: true,
+    schemaVersion: '2026.11.v3',
     updatedAtUtc: '2026-11-26T00:00:00Z',
     authenticated: auth.authenticated,
-    tier: auth.authenticated ? auth.tier : 'public',
+    tier: auth.authenticated ? auth.tier : 'solo_free_300pt',
     orderRoutingEnabled: false,
-    presets: CANONICAL_PROP_PRESETS
-  };
-
-  if (!auth.authenticated) {
-    return base;
-  }
-
-  return {
-    ...base,
+    presets: CANONICAL_PROP_PRESETS,
     proRiskMultipliers: {
       softDllAlpha: 0.8,
       amberCautionThresholdPct: 0.5,
       redLockoutThresholdPct: 0.2,
-      amberSizeScale: 0.5
+      amberSizeScale: 0.5,
+      consistencyWarningPct: 0.85
     },
-    ...(auth.tier === 'team'
-      ? {
-          teamDeskTemplates: {
-            maxConcurrentEvalsPerTrader: 20,
-            deskMaxDailyLossPct: 0.65,
-            mandatoryFlatWindowEt: '16:50-18:00'
-          }
-        }
-      : {})
+    deskTemplates: {
+      maxConcurrentEvalsPerTrader: 20,
+      deskMaxDailyLossPct: 0.65,
+      mandatoryFlatWindowEt: '16:50-18:00'
+    }
   };
 }
 
@@ -537,7 +566,7 @@ export function runServerMonteCarlo(
   }
 
   const runs = Math.min(25_000, Math.max(500, Math.trunc(runsRaw)));
-  const maxTierAccounts = tier === 'team' ? 100 : 20;
+  const maxTierAccounts = 100;
   const accounts = Math.min(maxTierAccounts, Math.max(1, Math.trunc(accountsRaw)));
   const winRate = winRateRaw > 1 && winRateRaw <= 95 ? winRateRaw / 100 : winRateRaw;
   if (winRate < 0.05 || winRate > 0.95) {
@@ -839,5 +868,192 @@ export async function processCloudRelayAlert(
       discordPayload,
       telegramPayload
     }
+  };
+}
+
+export async function buildPublicCloudBrief(
+  options?: { slugs?: string[]; coins?: string[]; nowMs?: number; fetchFn?: typeof fetch }
+): Promise<Record<string, unknown>> {
+  const fetchFn = options?.fetchFn ?? fetch;
+  const nowMs = options?.nowMs ?? Date.now();
+  const coins = options?.coins && options.coins.length > 0 ? options.coins : ['BTC', 'ETH', 'SOL'];
+  const slugs = (options?.slugs ?? []).map((s) => s.trim()).filter(Boolean).slice(0, 4);
+  const warnings: string[] = [];
+
+  // Check US/EU DST mismatch (America/New_York vs Europe/Berlin)
+  const fmtOffset = (tz: string) => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).formatToParts(new Date(nowMs));
+    const map = new Map(parts.map((p) => [p.type, p.value]));
+    const hr = Number(map.get('hour') ?? '0');
+    const localMs = Date.UTC(
+      Number(map.get('year') ?? '1970'),
+      Number(map.get('month') ?? '1') - 1,
+      Number(map.get('day') ?? '1'),
+      hr === 24 ? 0 : hr,
+      Number(map.get('minute') ?? '0'),
+      0
+    );
+    return Math.round((localMs - Math.floor(nowMs / 60_000) * 60_000) / 60_000);
+  };
+  const diffHours = Math.round(((fmtOffset('Europe/Berlin') - fmtOffset('America/New_York')) / 60) * 10) / 10;
+  const dstMismatchActive = Math.abs(diffHours - 6) > 0.05;
+
+  const hyperliquid: Array<Record<string, unknown>> = [];
+  try {
+    const hlRes = await fetchFn('https://api.hyperliquid.xyz/info', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'user-agent': 'EvalShield-Cloud/3.0' },
+      body: JSON.stringify({ type: 'metaAndAssetCtxs' }),
+      signal: AbortSignal.timeout(3500)
+    });
+    if (hlRes.ok) {
+      const data = (await hlRes.json()) as [
+        { universe?: Array<{ name?: string }> },
+        Array<{ markPx?: string; funding?: string; openInterest?: string }>
+      ];
+      const wanted = new Set(coins.map((c) => c.toUpperCase()));
+      const uni = data?.[0]?.universe ?? [];
+      const ctxs = data?.[1] ?? [];
+      for (let i = 0; i < uni.length; i += 1) {
+        const c = uni[i]?.name?.toUpperCase();
+        if (!c || !wanted.has(c)) continue;
+        const row = ctxs[i] ?? {};
+        const hourlyFunding = Number(row.funding ?? 0);
+        hyperliquid.push({
+          coin: c,
+          markPx: Number(row.markPx ?? 0),
+          hourlyFundingRate: hourlyFunding,
+          annualizedFundingPct: Math.round(hourlyFunding * 24 * 365 * 10000) / 100,
+          openInterest: Number(row.openInterest ?? 0),
+          extremeFundingAlert: Math.abs(hourlyFunding) >= 0.0005
+        });
+      }
+    } else {
+      warnings.push(`Hyperliquid HTTP ${hlRes.status}`);
+    }
+  } catch (err) {
+    warnings.push(`Hyperliquid error: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  const polymarket: Array<Record<string, unknown>> = [];
+  for (const slug of slugs) {
+    try {
+      const pRes = await fetchFn(
+        `https://gamma-api.polymarket.com/markets?slug=${encodeURIComponent(slug)}`,
+        { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(3500) }
+      );
+      if (pRes.ok) {
+        const rows = (await pRes.json()) as Array<Record<string, unknown>>;
+        const m = rows?.[0];
+        if (m) {
+          const rawP = typeof m.outcomePrices === 'string' ? JSON.parse(m.outcomePrices) : m.outcomePrices;
+          const yesPct = Array.isArray(rawP) && rawP[0] !== undefined ? Math.round(Number(rawP[0]) * 1000) / 10 : null;
+          polymarket.push({
+            slug,
+            question: String(m.question ?? slug),
+            yesProbabilityPct: yesPct,
+            closed: Boolean(m.closed),
+            endDate: m.endDate ?? null
+          });
+        }
+      }
+    } catch (err) {
+      warnings.push(`Polymarket "${slug}" error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  return {
+    ok: true,
+    openAccess: true,
+    schemaVersion: '2026.11.v3',
+    generatedAtUtc: new Date(nowMs).toISOString(),
+    usEuDstMismatchActive: dstMismatchActive,
+    nyToBerlinDiffHours: diffHours,
+    rolloverAdvisory:
+      'Watch 17:00 ET New York rollover spread widening on XAUUSD/FX; check spread/SL ratio >= 25%.',
+    hyperliquid,
+    polymarket,
+    warnings
+  };
+}
+
+export function evaluatePublicPortfolioGuard(rawBody: Record<string, unknown>): {
+  ok: true;
+  safeToProceed: boolean;
+  correlatedBuckets: Record<string, { signedLots: number; grossLots: number; accounts: number }>;
+  alerts: Array<{ code: string; severity: string; message: string; accounts: string[] }>;
+} | { ok: false; error: string; message: string } {
+  const rawPositions = rawBody.positions;
+  if (!Array.isArray(rawPositions) || rawPositions.length > 100) {
+    return { ok: false, error: 'INVALID_PARAMS', message: 'positions must be an array of <= 100 items.' };
+  }
+  const bucketOf = (sym: string) => {
+    const s = sym.toUpperCase().replace(/[^A-Z0-9-]/g, '');
+    if (s === 'ES' || s === 'MES' || s === 'NQ' || s === 'MNQ') return 'US_EQUITY_INDEX';
+    if (s === 'GC' || s === 'MGC' || s === 'XAUUSD') return 'GOLD_METALS';
+    if (s.startsWith('BTC') || s.startsWith('ETH') || s.startsWith('SOL')) return 'CRYPTO_BETA';
+    return s;
+  };
+  const scaleOf = (sym: string, q: number) => (['MES', 'MNQ', 'MGC', 'MCL'].includes(sym.toUpperCase()) ? q * 0.1 : q);
+
+  const buckets: Record<string, { signedLots: number; grossLots: number; accounts: number }> = {};
+  const dirs = new Map<string, { longs: Set<string>; shorts: Set<string>; accs: Set<string> }>();
+  const alerts: Array<{ code: string; severity: string; message: string; accounts: string[] }> = [];
+
+  for (const item of rawPositions) {
+    if (!item || typeof item !== 'object') continue;
+    const p = item as Record<string, unknown>;
+    const acc = String(p.accountId ?? '').trim();
+    const sym = String(p.symbol ?? '').trim().toUpperCase();
+    const side = String(p.side ?? '').trim().toUpperCase();
+    const qty = Number(p.qty ?? 0);
+    if (!acc || !sym || (side !== 'LONG' && side !== 'SHORT') || !Number.isFinite(qty) || qty <= 0) continue;
+    const b = bucketOf(sym);
+    const lots = scaleOf(sym, qty);
+    const d = dirs.get(b) ?? { longs: new Set<string>(), shorts: new Set<string>(), accs: new Set<string>() };
+    d.accs.add(acc);
+    if (side === 'LONG') d.longs.add(acc);
+    else d.shorts.add(acc);
+    dirs.set(b, d);
+    const cur = buckets[b] ?? { signedLots: 0, grossLots: 0, accounts: 0 };
+    cur.signedLots = Math.round((cur.signedLots + (side === 'LONG' ? lots : -lots)) * 100) / 100;
+    cur.grossLots = Math.round((cur.grossLots + lots) * 100) / 100;
+    cur.accounts = d.accs.size;
+    buckets[b] = cur;
+  }
+
+  for (const [b, d] of dirs.entries()) {
+    if (d.longs.size > 0 && d.shorts.size > 0) {
+      alerts.push({
+        code: 'CROSS_ACCOUNT_ANTI_HEDGE_VIOLATION',
+        severity: 'CRITICAL',
+        message: `Conflicting LONG & SHORT positions in ${b} violate Tradeify/FTMO anti-hedging rules.`,
+        accounts: Array.from(d.accs)
+      });
+    }
+    const netAbs = Math.abs(buckets[b]?.signedLots ?? 0);
+    if (netAbs >= 1.75 && d.accs.size >= 1 && rawPositions.filter((r) => bucketOf(String((r as Record<string, unknown>).symbol ?? '')) === b).length >= 2) {
+      alerts.push({
+        code: 'CORRELATED_EXPOSURE_MULTIPLIER',
+        severity: netAbs >= 4 ? 'CRITICAL' : 'WARN',
+        message: `Correlated basket ${b} reaches ${netAbs} equivalent full-size lots.`,
+        accounts: Array.from(d.accs)
+      });
+    }
+  }
+
+  return {
+    ok: true,
+    safeToProceed: !alerts.some((a) => a.severity === 'CRITICAL'),
+    correlatedBuckets: buckets,
+    alerts
   };
 }

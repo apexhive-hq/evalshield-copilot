@@ -1,0 +1,8 @@
+packages:
+  - '.'
+
+onlyBuiltDependencies:
+  - esbuild
+  - workerd
+
+strictDepBuilds: false

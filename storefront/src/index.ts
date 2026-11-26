@@ -12,6 +12,8 @@ import {
   authenticateCloudProRequest,
   buildBlackoutCalendarResponse,
   buildCloudPresetsResponse,
+  buildPublicCloudBrief,
+  evaluatePublicPortfolioGuard,
   processCloudRelayAlert,
   runServerMonteCarlo
 } from './cloud-pro.ts';
@@ -37,8 +39,8 @@ export interface Env {
   BASE_CHAIN_ID: string;
   BASE_RPC_URL: string;
   BASE_RPC_URLS?: string;
-  SOLO_PRICE_USDC_ATOMIC?: string;
   TEAM_PRICE_USDC_ATOMIC: string;
+  ENTERPRISE_PRICE_USDC_ATOMIC?: string;
   MIN_CONFIRMATIONS: string;
   CHALLENGE_TTL_SECONDS: string;
   DOWNLOAD_TTL_SECONDS: string;
@@ -91,7 +93,7 @@ interface DownloadGrantRecord {
 
 function parseTier(raw: string | undefined): Tier | null {
   const t = (raw ?? '').trim();
-  if (t === 'solo' || t === 'team') return t;
+  if (t === 'team' || t === 'enterprise') return t;
   return null;
 }
 
@@ -135,8 +137,8 @@ async function hmacSha256Hex(secret: string, message: string): Promise<string> {
 }
 
 function getTierPriceAtomic(env: Env, tier: Tier): bigint {
-  if (tier === 'team') return BigInt(env.TEAM_PRICE_USDC_ATOMIC || '99000000');
-  return BigInt(env.SOLO_PRICE_USDC_ATOMIC || '29000000');
+  if (tier === 'enterprise') return BigInt(env.ENTERPRISE_PRICE_USDC_ATOMIC || '499000000');
+  return BigInt(env.TEAM_PRICE_USDC_ATOMIC || '99000000');
 }
 
 function getBaseRpcUrls(env: Env): string[] {
@@ -280,17 +282,19 @@ app.get('/api/health', (c) => {
   return c.json({
     ok: true,
     service: 'evalshield-copilot',
-    version: '2.0.0',
-    openCoreLicense: 'MIT Local Core ($0 Unlimited Local) + Hosted Cloud Pro API',
+    version: '3.0.0',
+    licenseModel: 'WinRAR Dual Source-Available (Solo 0 USDC Full 300-pt + Early-Bird Commercial Team 99 USDC / Enterprise 499 USDC)',
     readOnlyFirewall: true,
     kvBound: Boolean(c.env.LICENSES_KV),
     globalReplayGuardBound: Boolean(c.env.GLOBAL_CLAIMED_TX_KV),
     durableObjectLockBound: Boolean(c.env.TX_CLAIM_LOCK),
     smartWalletSupport: ['EOA', 'ERC-1271', 'EIP-6492'],
-    cloudProEndpoints: [
+    publicSandboxEndpoints: [
       '/api/cloud/blackout-calendar',
       '/api/cloud/presets',
       '/api/cloud/monte-carlo',
+      '/api/cloud/brief',
+      '/api/cloud/portfolio-guard',
       '/api/cloud/relay/alert'
     ]
   });
@@ -300,6 +304,7 @@ app.get('/api/config', (c) => {
   return c.json({
     brand: c.env.BRAND_NAME || 'ApexHive Labs',
     productId: c.env.PRODUCT_ID || 'evalshield-copilot',
+    version: '3.0.0',
     tokenPrefix: c.env.TOKEN_PREFIX || 'EVALSHIELD-PRO-v1.',
     licensePublicKeySpkiB64: c.env.LICENSE_SIGNING_PUBLIC_SPKI_B64 || null,
     supportEmail: 'apexhive.hq@proton.me',
@@ -309,22 +314,27 @@ app.get('/api/config', (c) => {
     minConfirmations: Number(c.env.MIN_CONFIRMATIONS || '2'),
     smartWalletSupport: ['EOA', 'ERC-1271', 'EIP-6492'],
     tiers: {
-      free: {
-        priceUsd: '0',
-        maxAccounts: null,
-        license: 'MIT Local Core (Unlimited Local CLI, SQLite Journal & Web Dashboard)'
-      },
       solo: {
-        priceAtomic: c.env.SOLO_PRICE_USDC_ATOMIC || '29000000',
-        priceUsd: '29.00',
-        maxAccounts: 20,
-        cloudQuota: 'Hosted Cloud Pro Solo API (25k Monte Carlo, CME Macro Blackouts, Canonical Presets, Relay Alerts)'
+        priceUsd: '0',
+        seats: '1 natural person',
+        maxAccounts: null,
+        license: 'WinRAR Full-Open 300-pt Solo Edition (Forever Free, Self-Host BYO Cloud Kit Included)'
       },
       team: {
         priceAtomic: c.env.TEAM_PRICE_USDC_ATOMIC || '99000000',
         priceUsd: '99.00',
+        seats: '2-99 seats',
+        pricingLabel: 'Founder Early-Bird',
         maxAccounts: null,
-        cloudQuota: 'Hosted Cloud Pro Team API (Up to 100-Account Portfolio Monte Carlo, Desk Templates & Relays)'
+        cloudQuota: 'Commercial Team Desk License (2-99 seats + Hosted Outbound Telegram/Discord Alert Relay)'
+      },
+      enterprise: {
+        priceAtomic: c.env.ENTERPRISE_PRICE_USDC_ATOMIC || '499000000',
+        priceUsd: '499.00',
+        seats: '100+ seats',
+        pricingLabel: 'Founder Early-Bird',
+        maxAccounts: null,
+        cloudQuota: 'Commercial Enterprise / Prop Firm / Fund License (100+ seats + White-Label Entitlement)'
       }
     },
     altTreasury: {
@@ -351,19 +361,31 @@ app.get('/api/cloud/presets', async (c) => {
   return c.json(buildCloudPresetsResponse(auth));
 });
 
+app.get('/api/cloud/brief', async (c) => {
+  const slugParam = c.req.query('slug') ?? '';
+  const coinsParam = c.req.query('coins') ?? 'BTC,ETH,SOL';
+  const brief = await buildPublicCloudBrief({
+    slugs: slugParam.split(',').map((s) => s.trim()).filter(Boolean),
+    coins: coinsParam.split(',').map((s) => s.trim()).filter(Boolean)
+  });
+  return c.json(brief);
+});
+
+app.post('/api/cloud/portfolio-guard', async (c) => {
+  const parsed = await parseBoundedJsonBody(c.req.raw, MAX_JSON_BYTES);
+  if (!parsed.ok) {
+    return c.json({ ok: false, error: parsed.error, message: parsed.message }, parsed.status);
+  }
+  const out = evaluatePublicPortfolioGuard(parsed.data);
+  if (!out.ok) {
+    return c.json({ ok: false, error: out.error, message: out.message }, 400);
+  }
+  return c.json(out);
+});
+
 app.post('/api/cloud/monte-carlo', async (c) => {
   const auth = await authenticateCloudProRequest(c.req.raw.headers, c.env);
-  if (!auth.provided) {
-    return c.json(
-      {
-        ok: false,
-        error: 'PRO_AUTH_REQUIRED',
-        message: 'Provide Authorization: Bearer EVALSHIELD-PRO-v1.<payload>.<sig> for server-side Cloud Monte Carlo.'
-      },
-      401
-    );
-  }
-  if (!auth.authenticated) {
+  if (auth.provided && !auth.authenticated) {
     return c.json({ ok: false, error: auth.error, message: auth.message }, auth.status);
   }
 
@@ -372,7 +394,8 @@ app.post('/api/cloud/monte-carlo', async (c) => {
     return c.json({ ok: false, error: parsed.error, message: parsed.message }, parsed.status);
   }
 
-  const sim = runServerMonteCarlo(parsed.data, auth.tier);
+  const effectiveTier: Tier = auth.authenticated ? auth.tier : 'solo';
+  const sim = runServerMonteCarlo(parsed.data, effectiveTier);
   if (!sim.ok) {
     return c.json({ ok: false, error: sim.error, message: sim.message }, 400);
   }
@@ -380,27 +403,30 @@ app.post('/api/cloud/monte-carlo', async (c) => {
 });
 
 app.post('/api/cloud/relay/alert', async (c) => {
-  const auth = await authenticateCloudProRequest(c.req.raw.headers, c.env);
-  if (!auth.provided) {
-    return c.json(
-      {
-        ok: false,
-        error: 'PRO_AUTH_REQUIRED',
-        message: 'Provide Authorization: Bearer EVALSHIELD-PRO-v1.<payload>.<sig> for Cloud Alert Relay.'
-      },
-      401
-    );
-  }
-  if (!auth.authenticated) {
-    return c.json({ ok: false, error: auth.error, message: auth.message }, auth.status);
-  }
-
   const parsed = await parseBoundedJsonBody(c.req.raw, MAX_JSON_BYTES);
   if (!parsed.ok) {
     return c.json({ ok: false, error: parsed.error, message: parsed.message }, parsed.status);
   }
 
-  const out = await processCloudRelayAlert(parsed.data, auth.tier);
+  const dryRun = parsed.data.dryRun === undefined ? true : Boolean(parsed.data.dryRun);
+  const auth = await authenticateCloudProRequest(c.req.raw.headers, c.env);
+  if (auth.provided && !auth.authenticated) {
+    return c.json({ ok: false, error: auth.error, message: auth.message }, auth.status);
+  }
+
+  // Only dryRun formatting preview is open at $0; live outbound HTTP dispatches require commercial Bearer auth
+  if (!dryRun && !auth.authenticated) {
+    return c.json(
+      {
+        ok: false,
+        error: 'PRO_AUTH_REQUIRED',
+        message: 'Live outbound webhook dispatch requires Commercial License Bearer token (or deploy deploy/cloudflare-byo/ onto your own $0 Cloudflare account).'
+      },
+      401
+    );
+  }
+
+  const out = await processCloudRelayAlert(parsed.data, auth.authenticated ? auth.tier : 'solo');
   return c.json(out.body, out.status as 200 | 400 | 502);
 });
 
@@ -417,7 +443,7 @@ app.post('/api/challenge', async (c) => {
     return c.json({ error: 'INVALID_TX_HASH', message: 'Expected 0x-prefixed 64-hex txHash.' }, 400);
   }
   if (!tier) {
-    return c.json({ error: 'INVALID_TIER', message: 'Tier must be solo or team.' }, 400);
+    return c.json({ error: 'INVALID_TIER', message: 'Commercial tier must be team (99 USDC) or enterprise (499 USDC). Solo is 0 USDC free.' }, 400);
   }
 
   const ttl = Math.max(60, Number(c.env.CHALLENGE_TTL_SECONDS || '300'));
@@ -477,7 +503,7 @@ app.post('/api/verify', async (c) => {
     );
   }
   if (!tier) {
-    return c.json({ error: 'INVALID_TIER', message: 'Tier must be solo or team.' }, 400);
+    return c.json({ error: 'INVALID_TIER', message: 'Commercial tier must be team (99 USDC) or enterprise (499 USDC). Solo is 0 USDC free.' }, 400);
   }
 
   const txLower = txHash.toLowerCase();
@@ -623,7 +649,7 @@ app.post('/api/verify', async (c) => {
   }
 
   const issuedAt = Date.now();
-  const maxAccounts = tier === 'team' ? null : 20;
+  const maxAccounts = null;
   const licenseToken = await signEvalShieldLicense(c.env, {
     v: 1,
     product: c.env.PRODUCT_ID || 'evalshield-copilot',
@@ -726,10 +752,10 @@ app.get('/api/download', async (c) => {
   const bundle = {
     ok: true,
     product: 'evalshield-copilot',
-    openSourceLicense: 'MIT',
-    mitRepoUrl: 'https://github.com/apexhive-hq/evalshield-copilot',
+    licenseModel: 'ApexHive Dual Source-Available (WinRAR Solo $0 + Commercial Team/Enterprise)',
+    repoUrl: 'https://github.com/apexhive-hq/evalshield-copilot',
     tier: grant.tier,
-    maxAccounts: grant.tier === 'team' ? null : 20,
+    maxAccounts: null,
     payer: grant.payer,
     txHash: grant.txHash,
     issuedAt: grant.createdAt,
@@ -737,7 +763,9 @@ app.get('/api/download', async (c) => {
     cloudProEndpoints: [
       'GET /api/cloud/blackout-calendar',
       'GET /api/cloud/presets',
+      'GET /api/cloud/brief',
       'POST /api/cloud/monte-carlo',
+      'POST /api/cloud/portfolio-guard',
       'POST /api/cloud/relay/alert'
     ]
   };

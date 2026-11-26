@@ -134,7 +134,7 @@ async function killProcessTree(proc) {
   await new Promise((r) => setTimeout(r, 500));
 }
 
-test('End-to-end evalshield-copilot v2.0 Wrangler DO lock + ERC-1271 + Cloud Pro API + Playwright UI', async () => {
+test('End-to-end evalshield-copilot v3.0 Wrangler DO lock + ERC-1271 + Open 300-pt Sandbox + Playwright UI', async () => {
   const payer = privateKeyToAccount('0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80');
   const attacker = privateKeyToAccount('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
   const smartWalletAddr = '0x4444444444444444444444444444444444444444';
@@ -146,11 +146,11 @@ test('End-to-end evalshield-copilot v2.0 Wrangler DO lock + ERC-1271 + Cloud Pro
   await fs.rm(stateDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
 
   const { privateJwkJson, spkiB64 } = await generateEd25519Pair();
-  const txSoloApi = '0x' + '11'.repeat(32);
-  const txTeamMulti = '0x' + '22'.repeat(32);
+  const txTeamApi = '0x' + '11'.repeat(32);
+  const txEntMulti = '0x' + '22'.repeat(32);
   const txSmartRace = '0x' + '33'.repeat(32);
-  const txUiSolo = '0x' + '44'.repeat(32);
-  const txUiTeam = '0x' + '55'.repeat(32);
+  const txUiTeam = '0x' + '44'.repeat(32);
+  const txUiEnt = '0x' + '55'.repeat(32);
 
   const rpcState = {
     flakyHits: 0,
@@ -158,21 +158,21 @@ test('End-to-end evalshield-copilot v2.0 Wrangler DO lock + ERC-1271 + Cloud Pro
     smartWalletAddr,
     receipts: new Map([
       [
-        txSoloApi,
+        txTeamApi,
         {
           status: '0x1',
           blockNumber: '0x64',
-          logs: [encodeTransferLog({ from: payer.address, to: TREASURY, amountAtomic: 29_000_000n })]
+          logs: [encodeTransferLog({ from: payer.address, to: TREASURY, amountAtomic: 99_000_000n })]
         }
       ],
       [
-        txTeamMulti,
+        txEntMulti,
         {
           status: '0x1',
           blockNumber: '0x62',
           logs: [
-            encodeTransferLog({ from: payer.address, to: TREASURY, amountAtomic: 49_000_000n }),
-            encodeTransferLog({ from: payer.address, to: TREASURY, amountAtomic: 50_000_000n })
+            encodeTransferLog({ from: payer.address, to: TREASURY, amountAtomic: 200_000_000n }),
+            encodeTransferLog({ from: payer.address, to: TREASURY, amountAtomic: 299_000_000n })
           ]
         }
       ],
@@ -181,15 +181,7 @@ test('End-to-end evalshield-copilot v2.0 Wrangler DO lock + ERC-1271 + Cloud Pro
         {
           status: '0x1',
           blockNumber: '0x62',
-          logs: [encodeTransferLog({ from: smartWalletAddr, to: TREASURY, amountAtomic: 99_000_000n })]
-        }
-      ],
-      [
-        txUiSolo,
-        {
-          status: '0x1',
-          blockNumber: '0x62',
-          logs: [encodeTransferLog({ from: payer.address, to: TREASURY, amountAtomic: 29_000_000n })]
+          logs: [encodeTransferLog({ from: smartWalletAddr, to: TREASURY, amountAtomic: 499_000_000n })]
         }
       ],
       [
@@ -198,6 +190,14 @@ test('End-to-end evalshield-copilot v2.0 Wrangler DO lock + ERC-1271 + Cloud Pro
           status: '0x1',
           blockNumber: '0x62',
           logs: [encodeTransferLog({ from: payer.address, to: TREASURY, amountAtomic: 99_000_000n })]
+        }
+      ],
+      [
+        txUiEnt,
+        {
+          status: '0x1',
+          blockNumber: '0x62',
+          logs: [encodeTransferLog({ from: payer.address, to: TREASURY, amountAtomic: 499_000_000n })]
         }
       ]
     ])
@@ -283,25 +283,26 @@ test('End-to-end evalshield-copilot v2.0 Wrangler DO lock + ERC-1271 + Cloud Pro
     assert.equal(cfgRes.status, 200);
     const cfg = await cfgRes.json();
     assert.equal(cfg.supportEmail, 'apexhive.hq@proton.me');
-    assert.equal(cfg.tiers.free.maxAccounts, null);
-    assert.equal(cfg.tiers.solo.priceAtomic, '29000000');
+    assert.equal(cfg.tiers.solo.priceUsd, '0');
+    assert.equal(cfg.tiers.solo.maxAccounts, null);
     assert.equal(cfg.tiers.team.priceAtomic, '99000000');
+    assert.equal(cfg.tiers.enterprise.priceAtomic, '499000000');
     assert.equal((await fetch(`${baseUrl}/favicon.svg`)).status, 200);
 
-    // 2. API Checkout: 1-conf retry preserving nonce, 3 downloads -> 403, reclaim, attacker 403, 99 USDC multi-log
-    const chSolo = await (
+    // 2. API Checkout: Team (99 USDC) 1-conf retry preserving nonce, 3 downloads -> 403, reclaim, attacker 403, Enterprise (499 USDC) multi-log
+    const chTeamApi = await (
       await fetch(`${baseUrl}/api/challenge`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ txHash: txSoloApi, tier: 'solo' })
+        body: JSON.stringify({ txHash: txTeamApi, tier: 'team' })
       })
     ).json();
-    const sigSolo = await payer.signMessage({ message: chSolo.message });
+    const sigTeamApi = await payer.signMessage({ message: chTeamApi.message });
 
     const conf1 = await fetch(`${baseUrl}/api/verify`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ txHash: txSoloApi, nonce: chSolo.nonce, signature: sigSolo, tier: 'solo' })
+      body: JSON.stringify({ txHash: txTeamApi, nonce: chTeamApi.nonce, signature: sigTeamApi, tier: 'team' })
     });
     assert.equal(conf1.status, 403);
     assert.equal((await conf1.json()).error, 'INSUFFICIENT_CONFIRMATIONS');
@@ -311,37 +312,37 @@ test('End-to-end evalshield-copilot v2.0 Wrangler DO lock + ERC-1271 + Cloud Pro
     const conf2 = await fetch(`${baseUrl}/api/verify`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ txHash: txSoloApi, nonce: chSolo.nonce, signature: sigSolo, tier: 'solo' })
+      body: JSON.stringify({ txHash: txTeamApi, nonce: chTeamApi.nonce, signature: sigTeamApi, tier: 'team' })
     });
     assert.equal(conf2.status, 200);
-    const outSolo = await conf2.json();
-    assert.equal(outSolo.tier, 'solo');
-    assert.equal(outSolo.maxAccounts, 20);
-    assert.ok(outSolo.licenseToken.startsWith('EVALSHIELD-PRO-v1.'));
-    assert.ok(outSolo.activationCommand.startsWith('node apps/cli/dist/src/cli.js activate --token '));
+    const outTeam = await conf2.json();
+    assert.equal(outTeam.tier, 'team');
+    assert.equal(outTeam.maxAccounts, null);
+    assert.ok(outTeam.licenseToken.startsWith('EVALSHIELD-PRO-v1.'));
+    assert.ok(outTeam.activationCommand.startsWith('node apps/cli/dist/src/cli.js activate --token '));
 
     for (let i = 0; i < 3; i += 1) {
-      const dl = await fetch(`${baseUrl}${outSolo.downloadUrl}`);
+      const dl = await fetch(`${baseUrl}${outTeam.downloadUrl}`);
       assert.equal(dl.status, 200);
     }
-    const dl4 = await fetch(`${baseUrl}${outSolo.downloadUrl}`);
+    const dl4 = await fetch(`${baseUrl}${outTeam.downloadUrl}`);
     assert.equal(dl4.status, 403);
 
     const chReclaim = await (
       await fetch(`${baseUrl}/api/challenge`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ txHash: txSoloApi, tier: 'solo' })
+        body: JSON.stringify({ txHash: txTeamApi, tier: 'team' })
       })
     ).json();
     const reclaimRes = await fetch(`${baseUrl}/api/verify`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        txHash: txSoloApi,
+        txHash: txTeamApi,
         nonce: chReclaim.nonce,
         signature: await payer.signMessage({ message: chReclaim.message }),
-        tier: 'solo'
+        tier: 'team'
       })
     });
     assert.equal(reclaimRes.status, 200);
@@ -351,104 +352,109 @@ test('End-to-end evalshield-copilot v2.0 Wrangler DO lock + ERC-1271 + Cloud Pro
       await fetch(`${baseUrl}/api/challenge`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ txHash: txSoloApi, tier: 'solo' })
+        body: JSON.stringify({ txHash: txTeamApi, tier: 'team' })
       })
     ).json();
     const atkRes = await fetch(`${baseUrl}/api/verify`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        txHash: txSoloApi,
+        txHash: txTeamApi,
         nonce: chAtk.nonce,
         signature: await attacker.signMessage({ message: chAtk.message }),
-        tier: 'solo'
+        tier: 'team'
       })
     });
     assert.equal(atkRes.status, 403);
 
-    const chTeam = await (
+    const chEnt = await (
       await fetch(`${baseUrl}/api/challenge`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ txHash: txTeamMulti, tier: 'team' })
+        body: JSON.stringify({ txHash: txEntMulti, tier: 'enterprise' })
       })
     ).json();
-    const teamRes = await fetch(`${baseUrl}/api/verify`, {
+    const entRes = await fetch(`${baseUrl}/api/verify`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        txHash: txTeamMulti,
-        nonce: chTeam.nonce,
-        signature: await payer.signMessage({ message: chTeam.message }),
-        tier: 'team'
+        txHash: txEntMulti,
+        nonce: chEnt.nonce,
+        signature: await payer.signMessage({ message: chEnt.message }),
+        tier: 'enterprise'
       })
     });
-    assert.equal(teamRes.status, 200);
-    const outTeam = await teamRes.json();
-    assert.equal(outTeam.tier, 'team');
-    assert.equal(outTeam.maxAccounts, null);
-    assert.equal(outTeam.paidAtomic, '99000000');
+    assert.equal(entRes.status, 200);
+    const outEnt = await entRes.json();
+    assert.equal(outEnt.tier, 'enterprise');
+    assert.equal(outEnt.maxAccounts, null);
+    assert.equal(outEnt.paidAtomic, '499000000');
 
     // 2b. Live Wrangler TxClaimLockDO concurrent Promise.all race with 256-byte ERC-1271 Smart Wallet
     const [swCh1, swCh2] = await Promise.all([
       (await fetch(`${baseUrl}/api/challenge`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ txHash: txSmartRace, tier: 'solo' })
+        body: JSON.stringify({ txHash: txSmartRace, tier: 'team' })
       })).json(),
       (await fetch(`${baseUrl}/api/challenge`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ txHash: txSmartRace, tier: 'team' })
+        body: JSON.stringify({ txHash: txSmartRace, tier: 'enterprise' })
       })).json()
     ]);
     const [swRes1, swRes2] = await Promise.all([
       fetch(`${baseUrl}/api/verify`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ txHash: txSmartRace, nonce: swCh1.nonce, signature: smartWalletSig, tier: 'solo' })
+        body: JSON.stringify({ txHash: txSmartRace, nonce: swCh1.nonce, signature: smartWalletSig, tier: 'team' })
       }),
       fetch(`${baseUrl}/api/verify`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ txHash: txSmartRace, nonce: swCh2.nonce, signature: smartWalletSig, tier: 'team' })
+        body: JSON.stringify({ txHash: txSmartRace, nonce: swCh2.nonce, signature: smartWalletSig, tier: 'enterprise' })
       })
     ]);
     assert.deepEqual([swRes1.status, swRes2.status].sort((a, b) => a - b), [200, 403]);
 
-    // 2c. Live Cloud Pro API checks against real Wrangler workerd
-    const unauthMc = await fetch(`${baseUrl}/api/cloud/monte-carlo`, {
+    // 2c. Live Open 300-pt Sandbox API checks against real Wrangler workerd
+    const publicMc = await fetch(`${baseUrl}/api/cloud/monte-carlo`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ runs: 5000 })
-    });
-    assert.equal(unauthMc.status, 401);
-
-    const authMc = await fetch(`${baseUrl}/api/cloud/monte-carlo`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${outSolo.licenseToken}`
-      },
       body: JSON.stringify({ runs: 15000, accounts: 2, winRate: 50, rewardRiskRatio: 1.5, riskPerTradeUsd: 250 })
     });
-    assert.equal(authMc.status, 200);
-    const mcLive = await authMc.json();
+    assert.equal(publicMc.status, 200);
+    const mcLive = await publicMc.json();
     assert.equal(mcLive.runs, 15000);
     assert.equal(mcLive.accountsSimulated, 2);
 
-    const calLive = await (
-      await fetch(`${baseUrl}/api/cloud/blackout-calendar`, {
-        headers: { authorization: `Bearer ${outTeam.licenseToken}` }
-      })
-    ).json();
-    assert.equal(calLive.authenticated, true);
-    assert.equal(calLive.tier, 'team');
+    const calLive = await (await fetch(`${baseUrl}/api/cloud/blackout-calendar`)).json();
+    assert.equal(calLive.openAccess, true);
     assert.ok(calLive.events.length >= 5);
+
+    const portLive = await fetch(`${baseUrl}/api/cloud/portfolio-guard`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        positions: [
+          { accountId: 'accA', symbol: 'ES', side: 'LONG', qty: 1 },
+          { accountId: 'accB', symbol: 'NQ', side: 'SHORT', qty: 1 }
+        ]
+      })
+    });
+    assert.equal(portLive.status, 200);
+    assert.equal((await portLive.json()).safeToProceed, false);
+
+    const liveRelayUnauth = await fetch(`${baseUrl}/api/cloud/relay/alert`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ alertType: 'TILT_LOCKOUT', dryRun: false, webhookUrl: 'https://discord.com/api/webhooks/1/a' })
+    });
+    assert.equal(liveRelayUnauth.status, 401);
 
     const relaySsrf = await fetch(`${baseUrl}/api/cloud/relay/alert`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${outSolo.licenseToken}` },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${outTeam.licenseToken}` },
       body: JSON.stringify({ alertType: 'TILT_LOCKOUT', dryRun: false, webhookUrl: 'http://127.0.0.1:4210/api/health' })
     });
     assert.equal(relaySsrf.status, 400);
@@ -480,7 +486,7 @@ test('End-to-end evalshield-copilot v2.0 Wrangler DO lock + ERC-1271 + Cloud Pro
       assert.ok(bodyText.includes('apexhive.hq@proton.me'));
       assert.ok(bodyText.includes('Human-in-the-Loop Firewall'));
       await page.click('#cloud-blackouts-btn');
-      await page.waitForFunction(() => document.getElementById('cloud-preview-output')?.textContent?.includes('preview'));
+      await page.waitForFunction(() => document.getElementById('cloud-preview-output')?.textContent?.includes('solo_free_300pt'));
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
       assert.deepEqual(errors, []);
       await ctx.close();
@@ -504,8 +510,8 @@ test('End-to-end evalshield-copilot v2.0 Wrangler DO lock + ERC-1271 + Cloud Pro
       await page.exposeFunction('__dispatchMockTx', async (txReq) => {
         sentTxs.push(txReq);
         const d = String(txReq.data || '').toLowerCase();
-        if (d.endsWith(99_000_000n.toString(16).padStart(64, '0'))) return txUiTeam;
-        return txUiSolo;
+        if (d.endsWith(499_000_000n.toString(16).padStart(64, '0'))) return txUiEnt;
+        return txUiTeam;
       });
 
       await page.addInitScript((addr) => {
@@ -523,7 +529,9 @@ test('End-to-end evalshield-copilot v2.0 Wrangler DO lock + ERC-1271 + Cloud Pro
 
       await page.goto(baseUrl, { waitUntil: 'networkidle' });
 
-      // Module A & B Shield calculator preset + tilt lockout
+      // Module A & B Shield calculator preset + cross-market FTMO check + tilt lockout
+      await page.click('[data-preset="ftmo100k"]');
+      assert.equal(await page.locator('#inp-mode').inputValue(), 'STATIC');
       await page.click('[data-preset="apex50k"]');
       assert.equal(await page.locator('#inp-mode').inputValue(), 'INTRADAY_TRAILING');
       assert.ok((await page.locator('#out-floor').innerText()).includes('49,300'));
@@ -540,20 +548,20 @@ test('End-to-end evalshield-copilot v2.0 Wrangler DO lock + ERC-1271 + Cloud Pro
       assert.ok((await page.locator('#mc-pass-pct').innerText()).endsWith('%'));
 
       if (vp.tag === 'desktop') {
-        // 1-click Base USDC Solo (29 USDC) -> Team (99 USDC)
-        await page.selectOption('#tier-select', 'solo');
-        await page.click('#wallet-pay-btn');
-        await page.waitForSelector('#checkout-result:not([hidden])');
-        const tokSolo = (await page.locator('#license-token-text').innerText()).trim();
-        assert.ok(tokSolo.startsWith('EVALSHIELD-PRO-v1.'));
-        assert.ok(sentTxs[0].data.toLowerCase().endsWith(29_000_000n.toString(16).padStart(64, '0')));
-
+        // 1-click Base USDC Team (99 USDC) -> Enterprise (499 USDC)
         await page.selectOption('#tier-select', 'team');
         await page.click('#wallet-pay-btn');
         await page.waitForSelector('#checkout-result:not([hidden])');
         const tokTeam = (await page.locator('#license-token-text').innerText()).trim();
-        assert.notEqual(tokTeam, tokSolo);
-        assert.ok(sentTxs[1].data.toLowerCase().endsWith(99_000_000n.toString(16).padStart(64, '0')));
+        assert.ok(tokTeam.startsWith('EVALSHIELD-PRO-v1.'));
+        assert.ok(sentTxs[0].data.toLowerCase().endsWith(99_000_000n.toString(16).padStart(64, '0')));
+
+        await page.selectOption('#tier-select', 'enterprise');
+        await page.click('#wallet-pay-btn');
+        await page.waitForSelector('#checkout-result:not([hidden])');
+        const tokEnt = (await page.locator('#license-token-text').innerText()).trim();
+        assert.notEqual(tokEnt, tokTeam);
+        assert.ok(sentTxs[1].data.toLowerCase().endsWith(499_000_000n.toString(16).padStart(64, '0')));
       }
 
       assert.equal(

@@ -1,7 +1,7 @@
 {
   "name": "@evalshield/cli",
-  "version": "1.0.0",
-  "description": "Local CLI and dashboard host for EvalShield Co-Pilot (human-in-the-loop prop-firm risk calculator & CSV journal).",
+  "version": "3.0.0",
+  "description": "Local CLI and dashboard host for EvalShield Co-Pilot (WinRAR $0 Solo 300-pt cross-market prop risk shield, pre-trade thesis audit, 15s brief & SQLite journal).",
   "license": "MIT",
   "type": "module",
   "bin": {

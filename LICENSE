@@ -1,21 +1,18 @@
-MIT License
+ApexHive Dual Source-Available License (v3.0 — WinRAR Full-Open Model)
 
-Copyright (c) 2026 ApexHive Holdings
+Copyright (c) 2026 ApexHive Labs (ApexHive Holdings)
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Permission is hereby granted, free of charge (0 USDC), to any SINGLE NATURAL PERSON ("Solo Trader") to copy, install, modify, self-host, and use all features of this software — including packages/core, packages/journal, apps/cli, apps/web, and deploy/cloudflare-byo — for personal trading risk management, research, education, and evaluation/funded account self-auditing, forever, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. Commercial & Multi-Seat Licensing Requirement:
+   A valid paid Commercial License Token ("EVALSHIELD-PRO-v1..." issued by ApexHive Labs via Base USDC verification) is required for any of the following uses:
+   - Team / Desk Use (2 to 99 seats): multi-trader access, coaching classrooms, paid signal/mentorship communities, or shared deployments within an organization ("Team License — Founder Early-Bird 99 USDC").
+   - Enterprise / Prop-Firm / Fund Use (100+ seats): proprietary trading firms, hedge funds, brokerage desks, or white-label commercial redistribution ("Enterprise License — Founder Early-Bird 499 USDC").
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. Solo Exemption Guarantee:
+   Individual natural persons using the software strictly for their own private personal trading pay 0 USDC forever with zero feature limitations, zero hardware locks, and zero trial expirations.
+
+3. Strict Read-Only / No Financial Advice Disclaimer:
+   THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. ALL CALCULATIONS ARE STRICTLY INFORMATIONAL AND READ-ONLY. APEXHIVE LABS SHALL NOT BE LIABLE FOR ANY TRADING LOSSES, PROP-FIRM EVALUATION BREACHES, SLIPPAGE, OR DAMAGES ARISING FROM USE OF THIS SOFTWARE.
+
+Commercial inquiries & custom Enterprise licensing: apexhive.hq@proton.me

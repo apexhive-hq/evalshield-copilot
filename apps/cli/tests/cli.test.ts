@@ -73,6 +73,36 @@ test('evalshield CLI supports import -> check -> report end-to-end on local sqli
     assert.equal(rep.ok, true);
     assert.equal(rep.scorecard.totalTrades, 1);
     assert.equal(rep.scorecard.netPnlUsd, 98.76);
+
+    const preOut = execFileSync(
+      process.execPath,
+      [
+        CLI_ENTRY,
+        'pretrade',
+        '--symbol',
+        'XAUUSD',
+        '--side',
+        'LONG',
+        '--qty',
+        '1',
+        '--stop-ticks',
+        '120',
+        '--thesis',
+        'London session liquidity sweep reclaim',
+        '--db',
+        dbPath,
+        '--json'
+      ],
+      { encoding: 'utf8' }
+    );
+    const pre = JSON.parse(preOut) as {
+      ok: boolean;
+      audit: { symbol: string; thesisNote: string; remainingBufferAtEntry: number };
+    };
+    assert.equal(pre.ok, true);
+    assert.equal(pre.audit.symbol, 'XAUUSD');
+    assert.equal(pre.audit.thesisNote, 'London session liquidity sweep reclaim');
+    assert.ok(pre.audit.remainingBufferAtEntry > 0);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

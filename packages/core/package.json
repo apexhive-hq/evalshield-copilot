@@ -1,7 +1,7 @@
 {
   "name": "@evalshield/core",
-  "version": "1.0.0",
-  "description": "Deterministic prop-firm drawdown, DLL, consistency, CME contract sizing, session-quality, and Ed25519 license verification kernel.",
+  "version": "3.0.0",
+  "description": "Deterministic prop-firm drawdown, cross-asset (Futures/Gold/Crypto Perps/FX), portfolio anti-hedge guard, open BYO feed engine, and Ed25519 license verification kernel.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/src/index.js",

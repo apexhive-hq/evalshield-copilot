@@ -19,30 +19,32 @@
         <a href="#monte-carlo">Monte Carlo Survival</a>
         <a href="#cloud-pro">Cloud Pro API</a>
         <a href="#licensing">Open-Core Licensing</a>
-        <a href="https://github.com/apexhive-hq/evalshield-copilot" target="_blank" rel="noopener noreferrer">GitHub MIT</a>
+        <a href="https://github.com/apexhive-hq/evalshield-copilot" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
       </nav>
     </div>
   </header>
 
   <main class="container">
     <section class="hero">
-      <span class="badge-pill">MIT Local Core ($0 Unlimited) · Hosted Cloud Pro API · Read-Only Advisory Math</span>
-      <h1>Prop-Firm Drawdown Shield, CME Position Sizer &amp; Discipline Co-Pilot</h1>
+      <span class="badge-pill">WinRAR Dual Model · Solo 0 USDC (Full 300-pt) · Early-Bird Commercial Team 99 / Enterprise 499 USDC</span>
+      <h1>Cross-Market Prop-Firm Risk Shield, Portfolio Anti-Hedge Guard &amp; Co-Pilot</h1>
       <p class="subtitle">
-        Calculate exact Intraday vs. EOD trailing floors, ATR-adjusted CME contract caps with automatic micro fallbacks (<code>ES→MES</code>, <code>NQ→MNQ</code>, <code>GC→MGC</code>, <code>CL→MCL</code>), consistency-cap headroom, and 10,000-run evaluation survival odds.
+        Full 300-point engine open at <code>0 USDC</code> for Solo traders: Intraday/EOD/Static trailing floors, ATR &amp; Spread R-drag across CME Futures (<code>ES/NQ/GC/CL</code>), Gold (<code>XAUUSD</code>), FX &amp; Perps (<code>BTC-PERP</code>), FTMO/Tradeify news &amp; anti-hedge rules, plus 1-click self-host BYO Cloudflare kit.
       </p>
       <div id="compliance-firewall" class="firewall-banner">
-        <strong>Human-in-the-Loop Firewall (Apex / Topstep ToS &amp; Publisher Safe):</strong> Strictly read-only mathematical risk diagnostics and post-trade CSV/webhook execution journaling. Zero broker API credentials, zero automated order routing, and zero directional trade calls.
+        <strong>Human-in-the-Loop Firewall (Apex / Topstep / FTMO / Tradeify Safe):</strong> Strictly read-only risk math, pre-trade thesis audits, and passive feeds (Polymarket Gamma &amp; Hyperliquid <code>/info</code>). Zero broker API keys, zero order routing, and zero X/Twitter scraping.
       </div>
     </section>
 
     <section id="calculator" class="card">
       <div class="toolbar" style="justify-content: space-between; margin-bottom: 12px;">
-        <h2 style="margin: 0;">Module A &amp; B: Trailing Drawdown &amp; CME Contract Shield</h2>
+        <h2 style="margin: 0;">Module A &amp; B: Trailing Drawdown &amp; Cross-Market Sizer</h2>
         <div class="toolbar">
           <button class="btn preset-btn" type="button" data-preset="topstep50k">Topstep $50k EOD</button>
           <button class="btn preset-btn" type="button" data-preset="apex50k">Apex $50k Intraday</button>
-          <button class="btn preset-btn" type="button" data-preset="mffu50k">MFFU $50k Rapid</button>
+          <button class="btn preset-btn" type="button" data-preset="mffu50k">MFFU $50k</button>
+          <button class="btn preset-btn" type="button" data-preset="ftmo100k">FTMO $100k Static</button>
+          <button class="btn preset-btn" type="button" data-preset="tradeify50k">Tradeify $50k Growth</button>
         </div>
       </div>
 
@@ -76,14 +78,18 @@
           <input id="inp-day-pnl" class="text-input" type="number" value="-250" step="25">
         </div>
         <div>
-          <label class="field-label" for="inp-symbol">CME Contract</label>
+          <label class="field-label" for="inp-symbol">Contract / Asset</label>
           <select id="inp-symbol" class="text-input">
             <option value="ES">ES (E-mini S&amp;P — $12.50/tick)</option>
             <option value="MES">MES (Micro S&amp;P — $1.25/tick)</option>
             <option value="NQ" selected>NQ (E-mini Nasdaq — $5.00/tick)</option>
             <option value="MNQ">MNQ (Micro Nasdaq — $0.50/tick)</option>
-            <option value="GC">GC (Gold — $10.00/tick)</option>
+            <option value="GC">GC (CME Gold — $10.00/tick)</option>
             <option value="MGC">MGC (Micro Gold — $1.00/tick)</option>
+            <option value="XAUUSD">XAUUSD (Spot Gold — $1.00/0.01)</option>
+            <option value="EURUSD">EURUSD (FX Standard Lot — $10/pip)</option>
+            <option value="BTC-PERP">BTC-PERP (Perp — $1/tick)</option>
+            <option value="ETH-PERP">ETH-PERP (Perp — $0.10/tick)</option>
             <option value="CL">CL (WTI Crude — $10.00/tick)</option>
             <option value="MCL">MCL (Micro Crude — $1.00/tick)</option>
           </select>
@@ -91,6 +97,10 @@
         <div>
           <label class="field-label" for="inp-stop-ticks">User Stop (Ticks)</label>
           <input id="inp-stop-ticks" class="text-input" type="number" value="40" min="1">
+        </div>
+        <div>
+          <label class="field-label" for="inp-spread-ticks">Spread (Ticks / Rollover)</label>
+          <input id="inp-spread-ticks" class="text-input" type="number" value="0" min="0">
         </div>
         <div>
           <label class="field-label" for="inp-atr">14-Bar ATR (Points)</label>
@@ -175,33 +185,34 @@
 
     <section id="cloud-pro" class="card">
       <div class="toolbar" style="justify-content: space-between; margin-bottom: 12px;">
-        <h2 style="margin: 0;">Hosted Cloud Pro API (Non-Bypassable Server Endpoints)</h2>
+        <h2 style="margin: 0;">Open 300-pt Sandbox API (100% Free at $0 for Solo)</h2>
         <div class="toolbar">
           <button id="cloud-blackouts-btn" class="btn" type="button">Fetch Macro Blackout Feed</button>
           <button id="cloud-presets-btn" class="btn" type="button">Sync Canonical Firm Presets</button>
+          <button id="cloud-brief-btn" class="btn" type="button">Fetch Live Gamma &amp; HL Brief</button>
         </div>
       </div>
       <p class="subtitle">
-        Server-hosted endpoints authenticated with your Ed25519 Bearer token (<code>Authorization: Bearer EVALSHIELD-PRO-v1...</code>): 25,000-run multi-account Monte Carlo stress test (<code>POST /api/cloud/monte-carlo</code>), CME FOMC/CPI/NFP blackout schedule (<code>GET /api/cloud/blackout-calendar</code>), canonical prop firm rule schemas (<code>GET /api/cloud/presets</code>), and SSRF-guarded Discord/Telegram risk alert relays (<code>POST /api/cloud/relay/alert</code>).
+        WinRAR Solo philosophy: all analytical cloud tools are unlocked publicly at <code>$0</code> — full FOMC/CPI/FTMO/MFFU blackout rules (<code>GET /api/cloud/blackout-calendar</code>), canonical presets (<code>GET /api/cloud/presets</code>), 25,000-run Monte Carlo (<code>POST /api/cloud/monte-carlo</code>), live Hyperliquid &amp; DST Brief (<code>GET /api/cloud/brief</code>), and Tradeify/FTMO Portfolio Anti-Hedge check (<code>POST /api/cloud/portfolio-guard</code>). Only live outbound webhook relay (<code>dryRun: false</code>) requires a Commercial license (or deploy <code>deploy/cloudflare-byo/</code> to your own free Cloudflare account).
       </p>
-      <pre id="cloud-preview-output" class="code-block">Click "Fetch Macro Blackout Feed" or "Sync Canonical Firm Presets" to inspect live server responses.</pre>
+      <pre id="cloud-preview-output" class="code-block">Click any live sandbox button above to inspect responses at $0.</pre>
     </section>
 
     <section id="licensing" class="card">
-      <h2>Local MIT Core ($0) vs Hosted Cloud Pro API (Base USDC)</h2>
+      <h2>WinRAR Dual Source-Available License ($0 Solo · Commercial Team / Enterprise)</h2>
       <p class="subtitle">
-        <strong>MIT Local Core</strong> runs unlimited local accounts, all 3 drawdown modes, 8 CME contracts, CLI checks, and 4 broker CSV FIFO parsers 100% free forever at <code>$0</code>. Upgrade only for hosted non-bypassable Cloud Pro API compute, canonical rule sync, macro event blackouts, and Discord/Telegram alert relays.
+        <strong>Solo Traders (1 natural person)</strong> run the complete 300-point cross-market core, unlimited accounts, BYO connectors, SQLite journal, and self-host Cloudflare Workers Cron kit forever at <code>0 USDC</code>. Organizations (2+ traders, coaching desks, funded rooms, prop firms) purchase a commercial certificate below.
       </p>
 
       <div class="pricing-grid">
         <div class="tier-card">
           <div>
-            <h3>MIT Local Core</h3>
+            <h3>Solo Personal (1 Person)</h3>
             <div class="tier-price">0 USDC</div>
             <ul class="tier-list">
-              <li>Unlimited local prop evaluation accounts (SQLite)</li>
-              <li>Full Intraday / EOD / Static math + CME sizing</li>
-              <li>Tradovate, NT8, Rithmic &amp; TradingView CSV FIFO</li>
+              <li>100% Full 300-pt Engine Forever (Zero HWID or 24h Lock)</li>
+              <li>FTMO, Tradeify, Apex, Topstep, MFFU + Gold/FX/Perps</li>
+              <li>1-Click Self-Host <code>deploy/cloudflare-byo/</code> Telegram/Discord Cron</li>
             </ul>
           </div>
           <code class="code-block">git clone https://github.com/apexhive-hq/evalshield-copilot.git &amp;&amp; pnpm install --ignore-scripts &amp;&amp; pnpm run build</code>
@@ -209,28 +220,30 @@
 
         <div class="tier-card featured">
           <div>
-            <h3>Cloud Pro Solo</h3>
-            <div class="tier-price">29 USDC</div>
+            <h3>Commercial Team (2–99 Seats)</h3>
+            <div class="tier-price">99 USDC</div>
+            <div class="field-label">Founder Early-Bird</div>
             <ul class="tier-list">
-              <li>Up to 20-account Cloud Monte Carlo stress tests (25k runs)</li>
-              <li>CME FOMC/CPI/NFP blackout API &amp; rule multipliers</li>
-              <li>SSRF-guarded Discord/Telegram Tilt &amp; DLL alert relays</li>
+              <li>Official Ed25519 Team Certificate (2–99 trading seats / classroom)</li>
+              <li>Hosted Outbound Telegram &amp; Discord Alert Relay API</li>
+              <li>On-chain Base USDC ERC-1271 / EIP-6492 verified via TxClaimLockDO</li>
             </ul>
           </div>
-          <button class="btn btn-primary tier-pick-btn" type="button" data-tier="solo">Select Solo (29 USDC)</button>
+          <button class="btn btn-primary tier-pick-btn" type="button" data-tier="team">Select Team (99 USDC)</button>
         </div>
 
         <div class="tier-card">
           <div>
-            <h3>Cloud Pro Team</h3>
-            <div class="tier-price">99 USDC</div>
+            <h3>Commercial Enterprise (100+ Seats)</h3>
+            <div class="tier-price">499 USDC</div>
+            <div class="field-label">Founder Early-Bird</div>
             <ul class="tier-list">
-              <li>Up to 100-account desk Cloud Monte Carlo rollups</li>
-              <li>Team coaching desk risk cap templates via Cloud API</li>
-              <li>Base EOA + ERC-1271 / EIP-6492 Smart Wallet verified</li>
+              <li>Unlimited Seats (Prop Firms, Hedge Funds, Coaching Networks)</li>
+              <li>Internal White-Label &amp; Custom Redistribution Entitlement</li>
+              <li>Priority Rule Spec &amp; Asset Profile Integration Support</li>
             </ul>
           </div>
-          <button class="btn tier-pick-btn" type="button" data-tier="team">Select Team (99 USDC)</button>
+          <button class="btn tier-pick-btn" type="button" data-tier="enterprise">Select Enterprise (499 USDC)</button>
         </div>
       </div>
 
@@ -242,11 +255,11 @@
         <div class="toolbar">
           <label class="field-label" for="tier-select" style="margin: 0;">Selected Tier:</label>
           <select id="tier-select" class="text-input" style="width: auto; min-width: 300px; max-width: 100%;">
-            <option value="solo" selected>Pro Solo Funded-Prep — 29 USDC</option>
-            <option value="team">Pro Team Coaching Desk — 99 USDC</option>
+            <option value="team" selected>Commercial Team (2–99 Seats) — Founder Early-Bird 99 USDC</option>
+            <option value="enterprise">Commercial Enterprise (100+ Seats) — Founder Early-Bird 499 USDC</option>
           </select>
           <button id="wallet-pay-btn" class="btn btn-primary" type="button" hidden>
-            Pay 29 USDC with Base Wallet
+            Pay 99 USDC with Base Wallet
           </button>
         </div>
 
@@ -274,7 +287,7 @@
 
   <footer class="site-footer">
     <div class="container footer-inner">
-      <div>evalshield-copilot — MIT Open-Core Prop-Firm Risk Co-Pilot</div>
+      <div>evalshield-copilot — WinRAR Dual-Licensed Prop-Firm &amp; Cross-Market Risk Co-Pilot</div>
       <div>Support: <a href="mailto:apexhive.hq@proton.me">apexhive.hq@proton.me</a></div>
     </div>
   </footer>

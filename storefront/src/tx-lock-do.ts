@@ -1,4 +1,4 @@
-export type Tier = 'solo' | 'team';
+export type Tier = 'solo' | 'team' | 'enterprise';
 
 export interface DurableClaimRecord {
   scope: string;
@@ -53,7 +53,7 @@ export class TxClaimLockDO {
       const tier = String(body.tier ?? '') as Tier;
       const paidAtomic = String(body.paidAtomic ?? '0');
 
-      if (!txHash || !payer || (tier !== 'solo' && tier !== 'team')) {
+      if (!txHash || !payer || (tier !== 'solo' && tier !== 'team' && tier !== 'enterprise')) {
         return Response.json({ ok: false, error: 'INVALID_CLAIM_PARAMS' }, { status: 400 });
       }
 

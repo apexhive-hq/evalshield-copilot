@@ -2,6 +2,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  buildFifteenSecondBrief,
+  evaluatePortfolioGuard,
   evaluateRiskCheck,
   PROP_FIRM_PRESETS,
   type PropPresetId
@@ -57,10 +59,13 @@ function strFlag(flags: Record<string, string | boolean>, key: string, fallback?
 }
 
 function printHelp(): void {
-  console.log(`evalshield — Open-Core AI Futures & Prop-Firm Risk Co-Pilot (Read-Only / Human-in-the-Loop)
+  console.log(`evalshield — WinRAR Full-Open Prop-Firm & Cross-Market Risk Co-Pilot ($0 Solo, Read-Only)
 
 Usage:
-  evalshield check [--db path] [--account id] [--preset topstep_50k] [--symbol ES] [--stop-ticks 10] [--atr 2.5] [--risk-pct 0.2] [--skip-globex] [--json]
+  evalshield check [--db path] [--account id] [--preset topstep_50k|ftmo_100k_2step|tradeify_50k_growth] [--symbol ES|XAUUSD|BTC-PERP] [--stop-ticks 10] [--spread-ticks 0] [--atr 2.5] [--risk-pct 0.2] [--skip-globex] [--json]
+  evalshield pretrade --symbol <sym> --side LONG|SHORT --qty <n> --thesis "<note>" [--stop-ticks 10] [--account id] [--db path] [--json]
+  evalshield brief [--slug <polymarket-slug>] [--coins BTC,ETH,SOL] [--db path] [--json]
+  evalshield portfolio-check --positions '<jsonArray>' [--db path] [--json]
   evalshield import --file <csvPath> [--format auto|tradovate-fills|tradovate-perf|nt8-trades|nt8-execs|rithmic|tradingview] [--account id] [--db path] [--json]
   evalshield report [--account id] [--db path] [--json]
   evalshield activate --token <EVALSHIELD-PRO-v1...> [--db path] [--json]
@@ -98,30 +103,127 @@ async function main(): Promise<void> {
       const symbol = strFlag(flags, 'symbol', 'ES')!;
       const userStopTicks = numFlag(flags, 'stop-ticks', 10)!;
       const atr14 = numFlag(flags, 'atr');
+      const spreadTicks = numFlag(flags, 'spread-ticks', 0);
       const maxRiskPerTradePct = numFlag(flags, 'risk-pct', 0.2);
-      const result = evaluateRiskCheck({
-        account,
-        symbol,
-        userStopTicks,
-        atr14,
-        maxRiskPerTradePct,
-        sessionFilter: {
-          consecutiveLossesToday: scorecard.consecutiveLossesToday,
-          lastLossUtcMs: scorecard.lastLossUtcMs,
-          skipGlobexCheck: Boolean(flags['skip-globex'])
-        }
-      });
+      const customSpec = db.getCustomAssetProfile(symbol) ?? undefined;
+      const result = evaluateRiskCheck(
+        {
+          account,
+          symbol,
+          userStopTicks,
+          atr14,
+          spreadTicks,
+          maxRiskPerTradePct,
+          sessionFilter: {
+            consecutiveLossesToday: scorecard.consecutiveLossesToday,
+            lastLossUtcMs: scorecard.lastLossUtcMs,
+            skipGlobexCheck: Boolean(flags['skip-globex'])
+          }
+        },
+        customSpec
+      );
 
       if (asJson) {
         console.log(JSON.stringify({ ok: true, accountId, result }, null, 2));
       } else {
         console.log(
-          `[${result.status}] ${account.name} (${result.symbol}) | Remaining Buffer: $${result.remainingBuffer} | Max Contracts: ${result.maxContractsAllowed}` +
+          `[${result.status}] ${account.name} (${result.symbol}) | Remaining Buffer: $${result.remainingBuffer} | Safe Profit Headroom: $${result.remainingSafeAdditionalProfitUsd} | Max Units: ${result.maxContractsAllowed}` +
             (result.microFallbackSymbol
               ? ` | Micro Fallback: ${result.microFallbackContracts} ${result.microFallbackSymbol}`
               : '') +
             ` | Session: ${result.session.sessionAction} (${result.session.sessionQualityScore}/100)`
         );
+      }
+      return;
+    }
+
+    if (command === 'pretrade') {
+      const acc = strFlag(flags, 'account')
+        ? db.getAccount(strFlag(flags, 'account')!)
+        : db.seedDefaultAccountIfEmpty();
+      const symbol = strFlag(flags, 'symbol', 'ES')!;
+      const sideRaw = (strFlag(flags, 'side', 'LONG') ?? 'LONG').toUpperCase();
+      if (sideRaw !== 'LONG' && sideRaw !== 'SHORT') {
+        throw new Error('Invalid --side (expected LONG or SHORT)');
+      }
+      const plannedQty = numFlag(flags, 'qty', 1)!;
+      const stopTicks = numFlag(flags, 'stop-ticks', 10);
+      const thesisNote = strFlag(flags, 'thesis');
+      if (!thesisNote) throw new Error('Missing --thesis "<raw pre-trade note>"');
+      const audit = db.recordPretradeAudit({
+        accountId: acc.id,
+        symbol,
+        side: sideRaw,
+        plannedQty,
+        stopTicks,
+        thesisNote
+      });
+      if (asJson) {
+        console.log(JSON.stringify({ ok: true, audit }, null, 2));
+      } else {
+        console.log(
+          `[PRETRADE ${audit.id}] ${audit.symbol} ${audit.side} x${audit.plannedQty} | Buffer@$${audit.remainingBufferAtEntry} | SafeHeadroom=$${audit.consistencyHeadroomUsd} | Thesis="${audit.thesisNote}"`
+        );
+      }
+      return;
+    }
+
+    if (command === 'brief') {
+      const connectors = db.listConnectors().filter((c) => c.enabled);
+      const slugFlag = strFlag(flags, 'slug');
+      const slugs = [
+        ...connectors.filter((c) => c.kind === 'polymarket_slug').map((c) => c.target),
+        ...(slugFlag ? slugFlag.split(',').map((s) => s.trim()).filter(Boolean) : [])
+      ];
+      const coins = (strFlag(flags, 'coins', 'BTC,ETH,SOL') ?? 'BTC,ETH,SOL')
+        .split(',')
+        .map((c) => c.trim())
+        .filter(Boolean);
+      const rssSources = connectors
+        .filter((c) => c.kind === 'rss')
+        .map((c) => ({ url: c.target, label: c.label, keywords: c.keywords }));
+      const brief = await buildFifteenSecondBrief({
+        polymarketSlugs: slugs,
+        hyperliquidCoins: coins,
+        rssSources
+      });
+      if (asJson) {
+        console.log(JSON.stringify({ ok: true, brief }, null, 2));
+      } else {
+        console.log(`=== 15s Brief (${brief.generatedAtUtc}) ===`);
+        if (brief.dstMismatch.active) console.log(`DST ALERT: ${brief.dstMismatch.notice}`);
+        console.log(`Rollover: ${brief.rolloverAdvisory}`);
+        for (const hl of brief.hyperliquid) {
+          console.log(
+            `HL ${hl.coin}: $${hl.markPx} | Funding: ${hl.annualizedFundingPct}%/yr${hl.extremeFundingAlert ? ' [EXTREME]' : ''}`
+          );
+        }
+        for (const pm of brief.polymarket) {
+          console.log(
+            `Polymarket [${pm.slug}]: ${pm.yesProbabilityPct ?? '-'}% YES${pm.expiredOrSettled ? ' [EXPIRED/SETTLED]' : ''}`
+          );
+        }
+        for (const item of brief.rssHighlights.slice(0, 3)) {
+          console.log(`RSS (${item.source}): ${item.title}`);
+        }
+      }
+      return;
+    }
+
+    if (command === 'portfolio-check') {
+      const rawPos = strFlag(flags, 'positions');
+      if (!rawPos) throw new Error('Missing --positions \'[{"accountId":"...","symbol":"ES","side":"LONG","qty":2}]\'');
+      const positions = JSON.parse(rawPos);
+      const guard = evaluatePortfolioGuard(positions, db.listAccounts());
+      if (asJson) {
+        console.log(JSON.stringify({ ok: true, guard }, null, 2));
+      } else {
+        console.log(
+          `[PORTFOLIO safe=${guard.safeToProceed}] CombinedBuffer=$${guard.totalRemainingBufferUsd ?? 0} | Alerts=${guard.alerts.length}`
+        );
+        for (const a of guard.alerts) {
+          console.log(`  - [${a.severity}] ${a.code}: ${a.message}`);
+        }
       }
       return;
     }

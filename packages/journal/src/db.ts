@@ -3,10 +3,18 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
+  computeDrawdownState,
+  evaluateRiskCheck,
   getMaxAllowedAccounts,
+  normalizeSymbolRoot,
   PROP_FIRM_PRESETS,
+  validateSafeConnectorUrl,
   verifyEvalShieldLicenseToken,
   type AccountRiskProfile,
+  type AccountStage,
+  type ByoConnectorConfig,
+  type ByoConnectorKind,
+  type ContractSpec,
   type DrawdownMode,
   type EvalShieldTier,
   type PropPresetId
@@ -33,6 +41,7 @@ export class DomainError extends Error {
 export interface CreateAccountInput {
   name: string;
   presetId: PropPresetId;
+  accountStage?: AccountStage;
   startingBalance?: number;
   drawdownMode?: DrawdownMode;
   maxDrawdown?: number;
@@ -43,6 +52,30 @@ export interface CreateAccountInput {
   maxContractsCap?: number;
   consistencyCap?: number;
   profitTarget?: number;
+}
+
+export interface PretradeAuditRecord {
+  id: string;
+  accountId: string;
+  symbol: string;
+  side: 'LONG' | 'SHORT';
+  plannedQty: number;
+  stopTicks: number;
+  remainingBufferAtEntry: number;
+  consistencyHeadroomUsd: number;
+  newsRiskStatus: string;
+  thesisNote: string;
+  createdAt: string;
+}
+
+export interface CreatePretradeAuditInput {
+  accountId: string;
+  symbol: string;
+  side: 'LONG' | 'SHORT';
+  plannedQty: number;
+  stopTicks?: number;
+  thesisNote: string;
+  nowUtcMs?: number;
 }
 
 export interface DisciplineScorecard {
@@ -228,7 +261,38 @@ export class EvalShieldDb {
         tx_hash TEXT NOT NULL,
         activated_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS pretrade_audits (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        symbol TEXT NOT NULL,
+        side TEXT NOT NULL,
+        planned_qty REAL NOT NULL,
+        stop_ticks INTEGER NOT NULL DEFAULT 10,
+        remaining_buffer_at_entry REAL NOT NULL,
+        consistency_headroom_usd REAL NOT NULL,
+        news_risk_status TEXT NOT NULL,
+        thesis_note TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS byo_connectors (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        label TEXT NOT NULL,
+        target TEXT NOT NULL,
+        keywords_json TEXT NOT NULL DEFAULT '[]',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        meta_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
     `);
+
+    const cols = this.db.prepare('PRAGMA table_info(accounts)').all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === 'account_stage')) {
+      this.db.exec(`ALTER TABLE accounts ADD COLUMN account_stage TEXT NOT NULL DEFAULT 'EVAL'`);
+    }
   }
 
   getLicenseStatus(publicKeySpkiB64?: string): LicenseStatusRecord {
@@ -336,10 +400,16 @@ export class EvalShieldDb {
       byDay.set(d, (byDay.get(d) ?? 0) + t.net_pnl_usd);
     }
 
+    const presetId = String(r.preset_id) as PropPresetId;
+    const preset = PROP_FIRM_PRESETS[presetId] ?? PROP_FIRM_PRESETS.custom;
     return {
       id: accountId,
       name: String(r.name),
-      presetId: String(r.preset_id) as PropPresetId,
+      presetId,
+      accountStage: (String(r.account_stage ?? 'EVAL') === 'FUNDED' ? 'FUNDED' : 'EVAL') as AccountStage,
+      newsRestriction: preset.newsRestriction,
+      antiHedgingBanned: preset.antiHedgingBanned,
+      rolloverResetTimeZone: preset.rolloverResetTimeZone,
       startingBalance: Number(r.starting_balance),
       realizedBalance: Number(r.realized_balance),
       openUnrealizedPnl: Number(r.open_unrealized_pnl),
@@ -380,16 +450,17 @@ export class EvalShieldDb {
       this.db
         .prepare(
           `INSERT INTO accounts (
-            id, name, preset_id, starting_balance, realized_balance, open_unrealized_pnl,
+            id, name, preset_id, account_stage, starting_balance, realized_balance, open_unrealized_pnl,
             hwm, day_realized_pnl, drawdown_mode, max_drawdown, daily_loss_limit,
             alpha_soft_dll, safety_reserve, lock_cap, max_contracts_cap, consistency_cap,
             profit_target, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, 0, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
           input.name.trim(),
           input.presetId,
+          input.accountStage ?? 'EVAL',
           startingBalance,
           startingBalance,
           startingBalance,
@@ -414,6 +485,7 @@ export class EvalShieldDb {
     accountId: string,
     patch: Partial<{
       name: string;
+      accountStage: AccountStage;
       realizedBalance: number;
       openUnrealizedPnl: number;
       hwm: number;
@@ -431,6 +503,10 @@ export class EvalShieldDb {
     if (patch.name !== undefined) {
       sets.push('name = ?');
       params.push(patch.name.trim());
+    }
+    if (patch.accountStage !== undefined) {
+      sets.push('account_stage = ?');
+      params.push(patch.accountStage);
     }
     if (patch.realizedBalance !== undefined) {
       sets.push('realized_balance = ?');
@@ -883,5 +959,197 @@ export class EvalShieldDb {
       );
     }
     return lines.join('\n');
+  }
+
+  recordPretradeAudit(input: CreatePretradeAuditInput): PretradeAuditRecord {
+    const account = this.getAccount(input.accountId);
+    const customSpec = this.getCustomAssetProfile(input.symbol) ?? undefined;
+    const stopTicks = Math.max(1, Math.floor(input.stopTicks ?? 10));
+    const check = evaluateRiskCheck(
+      {
+        account,
+        symbol: input.symbol,
+        userStopTicks: stopTicks,
+        sessionFilter: {
+          nowUtcMs: input.nowUtcMs,
+          skipGlobexCheck: true
+        }
+      },
+      customSpec
+    );
+    const dd = computeDrawdownState(account);
+    const newsRiskStatus = check.session.flags.join(',') || check.session.sessionAction;
+    const id = makeId('pt');
+    const createdAt = new Date().toISOString();
+
+    this.db
+      .prepare(
+        `INSERT INTO pretrade_audits (
+          id, account_id, symbol, side, planned_qty, stop_ticks,
+          remaining_buffer_at_entry, consistency_headroom_usd, news_risk_status,
+          thesis_note, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        account.id,
+        check.symbol,
+        input.side,
+        input.plannedQty,
+        stopTicks,
+        dd.remainingBuffer,
+        check.remainingSafeAdditionalProfitUsd,
+        newsRiskStatus,
+        input.thesisNote.trim(),
+        createdAt
+      );
+
+    return {
+      id,
+      accountId: account.id,
+      symbol: check.symbol,
+      side: input.side,
+      plannedQty: input.plannedQty,
+      stopTicks,
+      remainingBufferAtEntry: dd.remainingBuffer,
+      consistencyHeadroomUsd: check.remainingSafeAdditionalProfitUsd,
+      newsRiskStatus,
+      thesisNote: input.thesisNote.trim(),
+      createdAt
+    };
+  }
+
+  listPretradeAudits(accountId: string, limit = 50): PretradeAuditRecord[] {
+    this.getAccount(accountId);
+    const rows = this.db
+      .prepare('SELECT * FROM pretrade_audits WHERE account_id = ? ORDER BY created_at DESC LIMIT ?')
+      .all(accountId, Math.max(1, Math.min(200, limit))) as Array<Record<string, unknown>>;
+    return rows.map((r) => ({
+      id: String(r.id),
+      accountId: String(r.account_id),
+      symbol: String(r.symbol),
+      side: String(r.side) as 'LONG' | 'SHORT',
+      plannedQty: Number(r.planned_qty),
+      stopTicks: Number(r.stop_ticks),
+      remainingBufferAtEntry: Number(r.remaining_buffer_at_entry),
+      consistencyHeadroomUsd: Number(r.consistency_headroom_usd),
+      newsRiskStatus: String(r.news_risk_status),
+      thesisNote: String(r.thesis_note),
+      createdAt: String(r.created_at)
+    }));
+  }
+
+  createConnector(
+    input: {
+      kind: ByoConnectorKind;
+      label: string;
+      target: string;
+      keywords?: string[];
+      enabled?: boolean;
+      metaJson?: Record<string, unknown>;
+    },
+    options?: { allowLoopbackForTest?: boolean }
+  ): ByoConnectorConfig {
+    if (input.kind === 'rss') {
+      try {
+        validateSafeConnectorUrl(input.target, {
+          allowLoopbackForTest: options?.allowLoopbackForTest
+        });
+      } catch (err) {
+        throw new DomainError(
+          400,
+          'DISALLOWED_CONNECTOR_URL',
+          err instanceof Error ? err.message : String(err)
+        );
+      }
+    }
+    const id = makeId('conn');
+    const now = new Date().toISOString();
+    const keywords = (input.keywords ?? []).map((k) => k.trim()).filter(Boolean).slice(0, 12);
+    const metaJson = input.metaJson ?? {};
+    const enabled = input.enabled ?? true;
+    const targetClean =
+      input.kind === 'custom_asset' ? normalizeSymbolRoot(input.target) : input.target.trim();
+
+    this.db
+      .prepare(
+        `INSERT INTO byo_connectors (
+          id, kind, label, target, keywords_json, enabled, meta_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        input.kind,
+        input.label.trim(),
+        targetClean,
+        JSON.stringify(keywords),
+        enabled ? 1 : 0,
+        JSON.stringify(metaJson),
+        now,
+        now
+      );
+
+    return {
+      id,
+      kind: input.kind,
+      label: input.label.trim(),
+      target: targetClean,
+      keywords,
+      enabled,
+      metaJson,
+      createdAt: now,
+      updatedAt: now
+    };
+  }
+
+  listConnectors(): ByoConnectorConfig[] {
+    const rows = this.db
+      .prepare('SELECT * FROM byo_connectors ORDER BY created_at ASC')
+      .all() as Array<Record<string, unknown>>;
+    return rows.map((r) => ({
+      id: String(r.id),
+      kind: String(r.kind) as ByoConnectorKind,
+      label: String(r.label),
+      target: String(r.target),
+      keywords: JSON.parse(String(r.keywords_json || '[]')) as string[],
+      enabled: Number(r.enabled) === 1,
+      metaJson: JSON.parse(String(r.meta_json || '{}')) as Record<string, unknown>,
+      createdAt: String(r.created_at),
+      updatedAt: String(r.updated_at)
+    }));
+  }
+
+  deleteConnector(connectorId: string): void {
+    const info = this.db.prepare('DELETE FROM byo_connectors WHERE id = ?').run(connectorId);
+    if (info.changes === 0) {
+      throw new DomainError(404, 'CONNECTOR_NOT_FOUND', `Connector not found: ${connectorId}`);
+    }
+  }
+
+  getCustomAssetProfile(symbolOrRaw: string): ContractSpec | null {
+    const clean = symbolOrRaw.trim().toUpperCase().replace(/^.*:/, '').split(/\s+/)[0] ?? '';
+    const connectors = this.listConnectors().filter((c) => c.kind === 'custom_asset' && c.enabled);
+    const match = connectors.find(
+      (c) => c.target.toUpperCase() === clean || c.target.toUpperCase() === normalizeSymbolRoot(symbolOrRaw)
+    );
+    if (!match || !match.metaJson) return null;
+    const m = match.metaJson;
+    const tickSize = Number(m.tickSize);
+    const tickValue = Number(m.tickValue);
+    if (!Number.isFinite(tickSize) || tickSize <= 0 || !Number.isFinite(tickValue) || tickValue <= 0) {
+      return null;
+    }
+    const pointValue = Number(m.pointValue);
+    return {
+      symbol: match.target.toUpperCase(),
+      name: match.label,
+      assetClass: 'CUSTOM',
+      tickSize,
+      tickValue,
+      pointValue: Number.isFinite(pointValue) && pointValue > 0 ? pointValue : tickValue / tickSize,
+      defaultRoundTripCommission: Number(m.defaultRoundTripCommission ?? 0) || 0,
+      makerFeeBps: typeof m.makerFeeBps === 'number' ? m.makerFeeBps : undefined,
+      takerFeeBps: typeof m.takerFeeBps === 'number' ? m.takerFeeBps : undefined
+    };
   }
 }

@@ -1,0 +1,21 @@
+{
+  "name": "@apexhive-labs/evalshield-byo-sentinel",
+  "version": "3.0.0",
+  "description": "Zero-cost 1-click self-hosted Cloudflare Workers + Durable Object + Cron sentinel for Solo evalshield-copilot traders (15s Morning Brief & TradingView Pre-Filtered Telegram/Discord Alerts).",
+  "license": "SEE LICENSE IN ../../LICENSE",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "pnpm run typecheck && node --test tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260702.1",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3",
+    "wrangler": "4.125.0"
+  }
+}

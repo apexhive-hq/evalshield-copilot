@@ -50,3 +50,9 @@ jobs:
       - name: Test Local Web Dashboard Playwright E2E
         working-directory: apps/web
         run: pnpm test
+      - name: Install, Typecheck & Test BYO Self-Host Worker Kit
+        working-directory: deploy/cloudflare-byo
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm run typecheck
+          pnpm test

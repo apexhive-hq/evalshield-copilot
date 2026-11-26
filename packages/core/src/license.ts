@@ -10,7 +10,7 @@ export const DEFAULT_EVALSHIELD_PUBLIC_KEY_SPKI_B64 =
 const LicensePayloadSchema = z.object({
   v: z.literal(1),
   product: z.literal('evalshield-copilot'),
-  tier: z.enum(['solo', 'team']),
+  tier: z.enum(['solo', 'team', 'enterprise']),
   maxAccounts: z.number().int().positive().nullable().optional(),
   payer: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
   txHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),

@@ -5,11 +5,16 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import {
+  ALL_MARKET_CONTRACTS,
+  buildFifteenSecondBrief,
   CME_CONTRACTS,
   DEFAULT_EVALSHIELD_PUBLIC_KEY_SPKI_B64,
+  evaluatePortfolioGuard,
   evaluateRiskCheck,
+  fetchSafeRssBrief,
   PROP_FIRM_PRESETS,
-  TOKEN_PREFIX
+  TOKEN_PREFIX,
+  validateSafeConnectorUrl
 } from '@evalshield/core';
 import { DomainError, EvalShieldDb } from './db.js';
 
@@ -38,6 +43,8 @@ export interface ServerOptions {
   webhookSecret?: string;
   publicKeySpkiB64?: string;
   allowedOrigins?: string[];
+  fetchFn?: typeof fetch;
+  allowLoopbackConnectorsForTest?: boolean;
 }
 
 function resolveAllowedOriginSet(explicit?: string[]): Set<string> {
@@ -175,8 +182,13 @@ const CreateAccountSchema = z.object({
     'apex_50k_intraday',
     'apex_50k_eod',
     'mffu_50k_starter',
+    'ftmo_100k_2step',
+    'ftmo_100k_1step',
+    'tradeify_50k_growth',
+    'tradeify_50k_straight',
     'custom'
   ]),
+  accountStage: z.enum(['EVAL', 'FUNDED']).optional(),
   startingBalance: z.number().positive().optional(),
   drawdownMode: z.enum(['INTRADAY_TRAILING', 'EOD_TRAILING', 'STATIC']).optional(),
   maxDrawdown: z.number().positive().optional(),
@@ -191,6 +203,7 @@ const CreateAccountSchema = z.object({
 
 const PatchAccountSchema = z.object({
   name: z.string().min(1).max(120).optional(),
+  accountStage: z.enum(['EVAL', 'FUNDED']).optional(),
   realizedBalance: z.number().positive().optional(),
   openUnrealizedPnl: z.number().finite().optional(),
   hwm: z.number().positive().optional(),
@@ -203,12 +216,17 @@ const PatchAccountSchema = z.object({
 
 const RiskCheckSchema = z.object({
   accountId: z.string().min(1),
-  symbol: z.string().min(1).max(24),
+  symbol: z.string().min(1).max(32),
   userStopTicks: z.number().int().min(0),
   atr14: z.number().min(0).optional(),
   kAtr: z.number().positive().optional(),
   roundTripCommission: z.number().min(0).optional(),
   slippageTicks: z.number().min(0).optional(),
+  spreadTicks: z.number().min(0).optional(),
+  notionalUsd: z.number().positive().optional(),
+  isMakerOrder: z.boolean().optional(),
+  fundingRateHourly: z.number().finite().optional(),
+  expectedHoldHours: z.number().min(0).optional(),
   maxRiskPerTradePct: z.number().positive().max(1).optional(),
   maxRiskPerTradeUsd: z.number().positive().optional(),
   runwayTrades: z.number().int().min(1).optional(),
@@ -271,6 +289,45 @@ const WebhookSchema = z.object({
 
 const LicenseActivateSchema = z.object({
   token: z.string().min(10)
+});
+
+const PretradeAuditSchema = z.object({
+  accountId: z.string().min(1),
+  symbol: z.string().min(1).max(32),
+  side: z.enum(['LONG', 'SHORT']),
+  plannedQty: z.number().positive(),
+  stopTicks: z.number().int().positive().optional(),
+  thesisNote: z.string().min(1).max(1000)
+});
+
+const CreateConnectorSchema = z.object({
+  kind: z.enum(['rss', 'polymarket_slug', 'custom_asset', 'webhook']),
+  label: z.string().min(1).max(120),
+  target: z.string().min(1).max(500),
+  keywords: z.array(z.string().max(40)).max(12).optional(),
+  enabled: z.boolean().optional(),
+  metaJson: z.record(z.unknown()).optional()
+});
+
+const TestConnectorSchema = z.object({
+  kind: z.enum(['rss', 'polymarket_slug', 'custom_asset']),
+  label: z.string().min(1).max(120).optional(),
+  target: z.string().min(1).max(500),
+  keywords: z.array(z.string().max(40)).max(12).optional()
+});
+
+const PortfolioGuardSchema = z.object({
+  positions: z
+    .array(
+      z.object({
+        accountId: z.string().min(1),
+        symbol: z.string().min(1).max(32),
+        side: z.enum(['LONG', 'SHORT']),
+        qty: z.number().positive(),
+        antiHedgingBanned: z.boolean().optional()
+      })
+    )
+    .max(100)
 });
 
 export function createEvalShieldHttpServer(options: ServerOptions): http.Server {
@@ -379,7 +436,13 @@ export function createEvalShieldHttpServer(options: ServerOptions): http.Server 
             supportEmail: 'apexhive.hq@proton.me',
             mode: 'sqlite-server',
             orderRoutingEnabled: false,
+            winrarLicenseModel: {
+              solo: '0 USDC (Full 300-pt Local Engine)',
+              teamEarlyBird: '99 USDC (2-99 seats)',
+              enterpriseEarlyBird: '499 USDC (100+ seats)'
+            },
             cmeContracts: Object.values(CME_CONTRACTS),
+            marketContracts: Object.values(ALL_MARKET_CONTRACTS),
             propPresets: Object.values(PROP_FIRM_PRESETS)
           },
           corsOrigin
@@ -445,25 +508,134 @@ export function createEvalShieldHttpServer(options: ServerOptions): http.Server 
         const account = db.getAccount(body.accountId);
         const scorecard = db.getDisciplineScorecard(body.accountId);
         const marketCtx = db.getMarketContext(body.symbol);
-        const result = evaluateRiskCheck({
-          account,
-          symbol: body.symbol,
-          userStopTicks: body.userStopTicks,
-          atr14: body.atr14 ?? marketCtx?.atr14,
-          kAtr: body.kAtr,
-          roundTripCommission: body.roundTripCommission,
-          slippageTicks: body.slippageTicks,
-          maxRiskPerTradePct: body.maxRiskPerTradePct,
-          maxRiskPerTradeUsd: body.maxRiskPerTradeUsd,
-          runwayTrades: body.runwayTrades,
-          sessionFilter: {
-            consecutiveLossesToday: scorecard.consecutiveLossesToday,
-            lastLossUtcMs: scorecard.lastLossUtcMs,
-            atr20dMedian: marketCtx?.atr20dMedian,
-            ...body.sessionFilter
-          }
-        });
+        const customSpec = db.getCustomAssetProfile(body.symbol) ?? undefined;
+        const result = evaluateRiskCheck(
+          {
+            account,
+            symbol: body.symbol,
+            userStopTicks: body.userStopTicks,
+            atr14: body.atr14 ?? marketCtx?.atr14,
+            kAtr: body.kAtr,
+            roundTripCommission: body.roundTripCommission,
+            slippageTicks: body.slippageTicks,
+            spreadTicks: body.spreadTicks,
+            notionalUsd: body.notionalUsd,
+            isMakerOrder: body.isMakerOrder,
+            fundingRateHourly: body.fundingRateHourly,
+            expectedHoldHours: body.expectedHoldHours,
+            maxRiskPerTradePct: body.maxRiskPerTradePct,
+            maxRiskPerTradeUsd: body.maxRiskPerTradeUsd,
+            runwayTrades: body.runwayTrades,
+            sessionFilter: {
+              consecutiveLossesToday: scorecard.consecutiveLossesToday,
+              lastLossUtcMs: scorecard.lastLossUtcMs,
+              atr20dMedian: marketCtx?.atr20dMedian,
+              ...body.sessionFilter
+            }
+          },
+          customSpec
+        );
         sendJson(res, 200, { ok: true, result }, corsOrigin);
+        return;
+      }
+
+      if (method === 'GET' && path === '/api/journal/pretrade') {
+        const accountId = url.searchParams.get('accountId') ?? db.listAccounts()[0]?.id ?? '';
+        if (!accountId) {
+          throw new DomainError(404, 'ACCOUNT_NOT_FOUND', 'No account available.');
+        }
+        const audits = db.listPretradeAudits(accountId);
+        sendJson(res, 200, { ok: true, accountId, audits }, corsOrigin);
+        return;
+      }
+
+      if (method === 'POST' && path === '/api/journal/pretrade') {
+        const body = parseJsonBuffer(await readRawBody(req, MAX_JSON_BYTES), PretradeAuditSchema);
+        const audit = db.recordPretradeAudit(body);
+        sendJson(res, 201, { ok: true, audit }, corsOrigin);
+        return;
+      }
+
+      if (method === 'GET' && path === '/api/connectors') {
+        sendJson(res, 200, { ok: true, connectors: db.listConnectors() }, corsOrigin);
+        return;
+      }
+
+      if (method === 'POST' && path === '/api/connectors') {
+        const body = parseJsonBuffer(await readRawBody(req, MAX_JSON_BYTES), CreateConnectorSchema);
+        const connector = db.createConnector(body, {
+          allowLoopbackForTest: options.allowLoopbackConnectorsForTest
+        });
+        sendJson(res, 201, { ok: true, connector }, corsOrigin);
+        return;
+      }
+
+      const connMatch = /^\/api\/connectors\/([A-Za-z0-9_-]+)$/.exec(path);
+      if (connMatch && method === 'DELETE') {
+        db.deleteConnector(connMatch[1]!);
+        sendJson(res, 200, { ok: true, deletedId: connMatch[1]! }, corsOrigin);
+        return;
+      }
+
+      if (method === 'POST' && path === '/api/connectors/test') {
+        const body = parseJsonBuffer(await readRawBody(req, MAX_JSON_BYTES), TestConnectorSchema);
+        if (body.kind === 'rss') {
+          try {
+            validateSafeConnectorUrl(body.target, {
+              allowLoopbackForTest: options.allowLoopbackConnectorsForTest
+            });
+          } catch (err) {
+            throw new DomainError(
+              400,
+              'DISALLOWED_CONNECTOR_URL',
+              err instanceof Error ? err.message : String(err)
+            );
+          }
+          const out = await fetchSafeRssBrief(
+            [{ url: body.target, label: body.label ?? 'BYO RSS', keywords: body.keywords ?? [] }],
+            { fetchFn: options.fetchFn, allowLoopbackForTest: options.allowLoopbackConnectorsForTest }
+          );
+          sendJson(res, 200, { ok: true, ...out }, corsOrigin);
+          return;
+        }
+        sendJson(res, 200, { ok: true, target: body.target, kind: body.kind }, corsOrigin);
+        return;
+      }
+
+      if (method === 'GET' && path === '/api/brief') {
+        const connectors = db.listConnectors().filter((c) => c.enabled);
+        const polymarketSlugs = connectors
+          .filter((c) => c.kind === 'polymarket_slug')
+          .map((c) => c.target);
+        const rssSources = connectors
+          .filter((c) => c.kind === 'rss')
+          .map((c) => ({ url: c.target, label: c.label, keywords: c.keywords }));
+        const nowParam = url.searchParams.get('nowUtcMs');
+        const parsedNow = nowParam ? Number(nowParam) : undefined;
+        const brief = await buildFifteenSecondBrief({
+          nowMs: parsedNow && Number.isFinite(parsedNow) ? parsedNow : undefined,
+          polymarketSlugs,
+          hyperliquidCoins: ['BTC', 'ETH', 'SOL'],
+          rssSources,
+          fetchFn: options.fetchFn,
+          allowLoopbackForTest: options.allowLoopbackConnectorsForTest
+        });
+        sendJson(res, 200, { ok: true, brief }, corsOrigin);
+        return;
+      }
+
+      if (method === 'POST' && path === '/api/portfolio/guard') {
+        const body = parseJsonBuffer(await readRawBody(req, MAX_JSON_BYTES), PortfolioGuardSchema);
+        const accounts = db.listAccounts();
+        const enriched = body.positions.map((p) => {
+          const acc = accounts.find((a) => a.id === p.accountId);
+          return {
+            ...p,
+            antiHedgingBanned: p.antiHedgingBanned ?? acc?.antiHedgingBanned ?? true
+          };
+        });
+        const guard = evaluatePortfolioGuard(enriched, accounts);
+        sendJson(res, 200, { ok: true, guard }, corsOrigin);
         return;
       }
 

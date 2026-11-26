@@ -1,8 +1,8 @@
 {
   "name": "@apexhive-labs/evalshield-copilot-store",
-  "version": "2.0.0",
-  "license": "MIT",
-  "description": "Cloudflare Workers Hosted Cloud Pro API (Monte Carlo, Macro Blackouts, Canonical Presets, Relay), interactive Prop-Firm Risk Shield, and non-custodial Base USDC ERC-1271/Ed25519 storefront for evalshield-copilot.",
+  "version": "3.0.0",
+  "license": "SEE LICENSE IN ../LICENSE",
+  "description": "Public 300-pt Sandbox (25k Monte Carlo, Gamma/Hyperliquid Brief, Prop Presets, Portfolio Guard) + Base USDC ERC-1271/Ed25519 Team (99 USDC) & Enterprise (499 USDC) License Issuer for evalshield-copilot.",
   "private": true,
   "type": "module",
   "engines": {

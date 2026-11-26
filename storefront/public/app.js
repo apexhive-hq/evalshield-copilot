@@ -4,8 +4,8 @@
   const BASE_CHAIN_ID_HEX = '0x2105';
   const BASE_USDC_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
   const TREASURY_ADDRESS = '0x32eceaC45DBED9E555dAb80346aBd4Ab9C676206';
-  const TIER_ATOMIC = { solo: 29_000_000n, team: 99_000_000n };
-  const TIER_LABEL = { solo: '29 USDC', team: '99 USDC' };
+  const TIER_ATOMIC = { team: 99_000_000n, enterprise: 499_000_000n };
+  const TIER_LABEL = { team: '99 USDC', enterprise: '499 USDC' };
 
   const CME = {
     ES: { tickSize: 0.25, tickValue: 12.5, micro: 'MES', fee: 4.5 },
@@ -14,6 +14,10 @@
     MNQ: { tickSize: 0.25, tickValue: 0.5, micro: null, fee: 1.2 },
     GC: { tickSize: 0.1, tickValue: 10.0, micro: 'MGC', fee: 4.8 },
     MGC: { tickSize: 0.1, tickValue: 1.0, micro: null, fee: 1.4 },
+    XAUUSD: { tickSize: 0.01, tickValue: 1.0, micro: null, fee: 7.0 },
+    EURUSD: { tickSize: 0.0001, tickValue: 10.0, micro: null, fee: 7.0 },
+    'BTC-PERP': { tickSize: 1.0, tickValue: 1.0, micro: null, fee: 9.0 },
+    'ETH-PERP': { tickSize: 0.1, tickValue: 0.1, micro: null, fee: 3.0 },
     CL: { tickSize: 0.01, tickValue: 10.0, micro: 'MCL', fee: 4.8 },
     MCL: { tickSize: 0.01, tickValue: 1.0, micro: null, fee: 1.4 },
   };
@@ -22,6 +26,8 @@
     topstep50k: { mode: 'EOD_TRAILING', balance: 50800, hwm: 51200, ddMax: 2000, dll: 1000, dayPnl: -250 },
     apex50k: { mode: 'INTRADAY_TRAILING', balance: 51100, hwm: 51800, ddMax: 2500, dll: 999999, dayPnl: -150 },
     mffu50k: { mode: 'EOD_TRAILING', balance: 50400, hwm: 50600, ddMax: 2000, dll: 1200, dayPnl: 200 },
+    ftmo100k: { mode: 'STATIC', balance: 101200, hwm: 101200, ddMax: 10000, dll: 5000, dayPnl: 400 },
+    tradeify50k: { mode: 'EOD_TRAILING', balance: 50900, hwm: 51000, ddMax: 2000, dll: 999999, dayPnl: 300 },
   };
 
   const $ = (id) => document.getElementById(id);
@@ -33,10 +39,10 @@
     el.hidden = false;
   }
 
-  function calcContracts(spec, stopTicks, atrPoints, riskBudget) {
+  function calcContracts(spec, stopTicks, atrPoints, riskBudget, spreadTicks) {
     const atrTicks = Math.ceil(atrPoints / spec.tickSize);
     const effectiveStop = Math.max(stopTicks, atrTicks);
-    const lossPerContract = effectiveStop * spec.tickValue + spec.fee + 1 * spec.tickValue;
+    const lossPerContract = effectiveStop * spec.tickValue + spec.fee + (1 + spreadTicks) * spec.tickValue;
     if (lossPerContract <= 0 || riskBudget <= 0) return 0;
     return Math.min(15, Math.floor(riskBudget / lossPerContract));
   }
@@ -50,18 +56,19 @@
     const dayPnl = Number($('inp-day-pnl').value || 0);
     const symbol = $('inp-symbol').value;
     const stopTicks = Math.max(1, Number($('inp-stop-ticks').value || 20));
+    const spreadTicks = Math.max(0, Number($('inp-spread-ticks')?.value || 0));
     const atr = Math.max(0, Number($('inp-atr').value || 0));
     const consecLosses = Math.max(0, Number($('inp-losses').value || 0));
 
-    const floor = mode === 'STATIC' ? 50000 - ddMax : hwm - ddMax;
+    const floor = mode === 'STATIC' ? Math.max(0, (balance >= 90000 ? 100000 : 50000) - ddMax) : hwm - ddMax;
     const ddBuffer = Math.max(0, balance - floor);
     const softDllRemaining = Math.max(0, 0.8 * dll + dayPnl);
     const remainingBuffer = Math.max(0, Math.min(ddBuffer, softDllRemaining));
 
     const runwayBudget = remainingBuffer / 4;
     const spec = CME[symbol] || CME.MES;
-    let maxContracts = calcContracts(spec, stopTicks, atr, runwayBudget);
-    const microCap = spec.micro ? calcContracts(CME[spec.micro], stopTicks, atr, runwayBudget) : 0;
+    let maxContracts = calcContracts(spec, stopTicks, atr, runwayBudget, spreadTicks);
+    const microCap = spec.micro ? calcContracts(CME[spec.micro], stopTicks, atr, runwayBudget, spreadTicks) : 0;
 
     let score = 100;
     if (remainingBuffer < 0.35 * ddMax) score -= 30;
@@ -166,7 +173,7 @@
   }
 
   function updateWalletLabel() {
-    const tier = TIER_LABEL[$('tier-select').value] ? $('tier-select').value : 'solo';
+    const tier = TIER_LABEL[$('tier-select').value] ? $('tier-select').value : 'team';
     $('wallet-pay-btn').textContent = `Pay ${TIER_LABEL[tier]} with Base Wallet`;
   }
 
@@ -231,7 +238,7 @@
     });
   });
 
-  ['inp-mode', 'inp-balance', 'inp-hwm', 'inp-dd-max', 'inp-dll', 'inp-day-pnl', 'inp-symbol', 'inp-stop-ticks', 'inp-atr', 'inp-losses'].forEach((id) => {
+  ['inp-mode', 'inp-balance', 'inp-hwm', 'inp-dd-max', 'inp-dll', 'inp-day-pnl', 'inp-symbol', 'inp-stop-ticks', 'inp-spread-ticks', 'inp-atr', 'inp-losses'].forEach((id) => {
     $(id)?.addEventListener('input', recomputeShield);
     $(id)?.addEventListener('change', recomputeShield);
   });
@@ -254,7 +261,7 @@
 
   $('wallet-pay-btn')?.addEventListener('click', async () => {
     try {
-      const tier = TIER_ATOMIC[$('tier-select').value] ? $('tier-select').value : 'solo';
+      const tier = TIER_ATOMIC[$('tier-select').value] ? $('tier-select').value : 'team';
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
       const chainId = await window.ethereum.request({ method: 'eth_chainId' });
       if (String(chainId).toLowerCase() !== BASE_CHAIN_ID_HEX) {
@@ -274,7 +281,7 @@
 
   $('manual-verify-btn')?.addEventListener('click', async () => {
     const txHash = $('manual-tx-input').value.trim();
-    const tier = TIER_ATOMIC[$('tier-select').value] ? $('tier-select').value : 'solo';
+    const tier = TIER_ATOMIC[$('tier-select').value] ? $('tier-select').value : 'team';
     if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
       showBox($('checkout-status'), 'Enter a valid 66-character 0x transaction hash.', 'error');
       return;
@@ -298,6 +305,7 @@
 
   $('cloud-blackouts-btn')?.addEventListener('click', () => inspectCloudEndpoint('/api/cloud/blackout-calendar'));
   $('cloud-presets-btn')?.addEventListener('click', () => inspectCloudEndpoint('/api/cloud/presets'));
+  $('cloud-brief-btn')?.addEventListener('click', () => inspectCloudEndpoint('/api/cloud/brief?coins=BTC,ETH,SOL'));
 
   recomputeShield();
   runMonteCarlo();

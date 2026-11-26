@@ -1,51 +1,70 @@
-# evalshield-copilot
+# evalshield-copilot (v3.0.0)
 
-**Open-Core Futures & Prop-Firm Evaluation Risk Shield, CME Position Sizer, Post-Trade Discipline Journal & Hosted Cloud Pro API** (`$0` MIT Local Core Forever · Strictly Read-Only / Human-in-the-Loop).
+**Full-Open Cross-Market Prop-Firm Risk Shield, Multi-Account Anti-Hedge Guard, Pre-Trade Thesis Journal & 1-Click Self-Host BYO Cloud Kit** (`0 USDC` Solo Forever · Strictly Read-Only / Human-in-the-Loop).
 
-`evalshield-copilot` computes prop-firm trailing drawdowns (`INTRADAY_TRAILING`, `EOD_TRAILING`, `STATIC`), soft Daily Loss Limit (`DLL`) buffers, ATR-normalized CME contract caps with automatic micro fallbacks (`ES -> MES`, `NQ -> MNQ`, `GC -> MGC`, `CL -> MCL`), consistency-cap headroom (`30%–50%`), session-discipline guards, SHA-256 deduplicated broker CSV FIFO parsing, and a 10,000–25,000 run evaluation Monte Carlo survival simulator.
+`evalshield-copilot` uses the **WinRAR Dual Source-Available Model**:
+- **Single Traders (`Solo — 1 person`)** get **100% of the 300-point engine free forever (`0 USDC`)** — zero HWID locks, zero 24h trial countdowns, zero feature paywalls, plus a `$0` 1-click Cloudflare self-host Cron template (`deploy/cloudflare-byo/`).
+- **Teams & Organizations (`2+` seats)** purchase an official commercial Ed25519 certificate verified on Base Mainnet USDC (`Team 2–99 seats: Founder Early-Bird 99 USDC` · `Enterprise 100+ seats: Founder Early-Bird 499 USDC`).
 
-> **Human-in-the-Loop Firewall:** Strictly read-only risk math and post-trade journaling. **Zero broker API keys, zero automated order placement, zero copy-trading, and zero directional trade signals.** Built for Topstep, Apex Trader Funding, MyFundedFutures (`MFFU`), and Tradeify evaluation rules.
+> **Human-in-the-Loop Firewall:** Strictly read-only risk mathematics, pre-trade/post-trade audit journaling, and passive feed monitoring. **Zero X/Twitter scraping, zero automated order placement or copy-trade execution, zero geo-blocked Binance/Bybit dependencies, and concise 15-second cards instead of bloated news walls.**
 
 ---
 
-## Architecture
+## Architecture (v3.0.0 — Cross-Market 300-Point Engine)
 
 ```text
-  Broker CSV Exports (Tradovate / NT8 / Rithmic / TradingView)
+  Broker CSV Exports (Tradovate / NT8 / Rithmic / TradingView) + Pre-Trade Thesis Audits
      │
      ▼
-  ┌───────────────────────────────────────────────┐
-  │ packages/journal (Node 24 node:sqlite)        │◄── Read-Only Webhook (/api/ingest/webhook)
-  │ • WAL SQLite + SHA-256 fill deduplication     │    (HMAC-SHA256 verified, strict loopback +
-  │ • FIFO execution pairing + tilt audit         │     EVALSHIELD_ALLOWED_ORIGINS CORS guard)
-  └───────────────────┬───────────────────────────┘
-                      │
-                      ▼
-  ┌───────────────────────────────────────────────┐
-  │ packages/core (@evalshield/core)              │
-  │ • Intraday / EOD / Static drawdown math       │
-  │ • 8 CME contract specs + micro fallback       │
-  │ • Offline Ed25519 entitlement verifier        │
-  └─────────┬────────────────────┬────────────────┘
-            │                    │
-            ▼                    ▼
-     apps/cli (evalshield)   apps/web (127.0.0.1:4200)
-     • check / import /      • Live Shield & Sizer UI
-       report / activate /   • CSV FIFO Scorecard
-       serve                 • Unlimited Local MIT Profiles
+  ┌──────────────────────────────────────────────────────────┐
+  │ packages/journal (Node 24 node:sqlite WAL)               │◄── Read-Only Webhook (/api/ingest/webhook)
+  │ • Pre-trade snapshot + raw thesis (/api/journal/pretrade)│◄── BYO Pluggable Connectors (/api/connectors)
+  │ • SHA-256 fill dedup + formula-safe CSV export           │    (SSRF-guarded RSS max-3 / Polymarket / Custom Asset)
+  └───────────────────────────┬──────────────────────────────┘
+                              │
+                              ▼
+  ┌──────────────────────────────────────────────────────────┐
+  │ packages/core (@evalshield/core v3.0.0)                  │
+  │ • Prop Presets: Topstep, Apex, MFFU, FTMO (1&2), Tradeify│
+  │ • Assets: ES/MES/NQ/MNQ/GC/MGC/CL/MCL + XAUUSD/EURUSD +  │
+  │           BTC-PERP / ETH-PERP / SOL-PERP + Custom Specs  │
+  │ • XAUUSD Rollover Spread R-Drag + US/EU DST Mismatch     │
+  │ • 85% Consistency Safe Headroom + Crypto Maker/Taker/Fund│
+  │ • Portfolio Guard: ES+NQ Beta Multiplier & Anti-Hedge Ban│
+  │ • No-Key Feeds: Polymarket Gamma API + Hyperliquid /info │
+  └──────────────┬─────────────────────────┬─────────────────┘
+                 │                         │
+                 ▼                         ▼
+       apps/cli (evalshield)         apps/web (127.0.0.1:4200)
+       • check / pretrade / brief /  • 15s Pre-Market Brief Card
+         portfolio-check / import /  • Cross-Market Risk Shield
+         report / activate / serve   • Collapsible BYO Connectors
 
-  Hosted Cloud Pro API & Storefront (Cloudflare Workers + Durable Object + KV)
+  1-Click Solo Self-Host Sentinel (deploy/cloudflare-byo/)
+  • Deploy on YOUR OWN $0 Cloudflare Workers account in 5 min (BYOStateDO + */15 Cron)
+  • 24/7 Telegram/Discord 15s Brief & TradingView Pre-Filtered Alerts with $0 server cost
+
+  Public Sandbox & Commercial License Issuer (storefront/)
   • https://evalshield-copilot.apexhive-hq.workers.dev/
-  • Base USDC (0x2105) EOA + ERC-1271 / EIP-6492 Smart Wallet -> TxClaimLockDO -> Ed25519
-  • Non-bypassable server APIs: 25k Cloud Monte Carlo, CME Macro Blackouts,
-    Canonical Firm Presets, SSRF-Guarded Discord/Telegram Risk Alert Relays
+  • All analytical tools open at $0 (25k Monte Carlo, Presets, Blackouts, Gamma/HL Brief)
+  • Base USDC ERC-1271 / EIP-6492 + TxClaimLockDO -> Ed25519 Team/Enterprise Certificates
 ```
 
 ---
 
-## Quickstart (`$0` MIT Local Core — Unlimited Local Profiles)
+## Licensing (WinRAR Dual Model — Solo $0 · Early-Bird Commercial)
 
-Requires **Node.js `>= 24.0.0`** (uses built-in `node:sqlite` and `node:test`) and **pnpm `12+`**.
+| Tier | Eligibility | Price (One-Time Base USDC) | Scope |
+| --- | --- | --- | --- |
+| **Solo Personal** | `1` natural person | **`0 USDC`** | **Full 300-point engine**, unlimited local accounts, BYO connectors, Portfolio Guard, public 25k sandbox, and `deploy/cloudflare-byo/` self-host kit forever |
+| **Commercial Team** | `2–99` seats (coaching rooms / trading desks) | **`Founder Early-Bird 99 USDC`** | Official Ed25519 organization license + hosted outbound Telegram/Discord relay endpoint |
+| **Commercial Enterprise** | `100+` seats (prop firms / funds / white-label) | **`Founder Early-Bird 499 USDC`** | Organization-wide unlimited seats, custom SLA support, & commercial redistribution entitlement |
+
+---
+
+## Quickstart (`0 USDC` Solo — Node 24)
+
+Requires **Node.js `>= 24.0.0`** (uses built-in `node:sqlite` and `node:test`) and **pnpm `10+`**.
 
 ```bash
 git clone https://github.com/apexhive-hq/evalshield-copilot.git
@@ -54,105 +73,35 @@ pnpm install --ignore-scripts
 pnpm run build
 ```
 
-Run a pre-trade drawdown & CME sizing check:
+Run cross-market risk checks (`FTMO`, `Tradeify`, `Topstep`, `Apex`, `MFFU`), record pre-trade thesis snapshots, fetch the 15-second brief, and audit multi-account hedging:
 
 ```bash
-node apps/cli/dist/src/cli.js check --preset topstep_50k --symbol ES --stop-ticks 16 --atr 4.5 --skip-globex
-```
-
-Import a broker CSV export (auto-detects `tradovate-fills`, `tradovate-perf`, `nt8-trades`, `nt8-execs`, `rithmic`, `tradingview`), inspect your discipline scorecard, or start the local web dashboard on `127.0.0.1:4200`:
-
-```bash
+node apps/cli/dist/src/cli.js check --preset ftmo_100k_1step --symbol XAUUSD --stop-ticks 200 --spread-ticks 75 --skip-globex
+node apps/cli/dist/src/cli.js pretrade --symbol XAUUSD --side LONG --qty 1 --stop-ticks 200 --thesis "London sweep reclaim"
+node apps/cli/dist/src/cli.js brief --slug fed-cut-december --coins BTC,ETH,SOL
 node apps/cli/dist/src/cli.js import --file ./my-trades.csv --format auto
-node apps/cli/dist/src/cli.js report
 node apps/cli/dist/src/cli.js serve --port 4200
 ```
 
-Configure `EVALSHIELD_ALLOWED_ORIGINS` if accessing the local server API from an explicit cross-origin dashboard origin (loopback `127.0.0.1` / `localhost` / `[::1]` is allowed automatically; disallowed cross-origin writes return `403 ORIGIN_NOT_ALLOWED`).
+Want 24/7 Telegram/Discord red-zone & morning brief alerts when your computer is off? Follow [`deploy/cloudflare-byo/README.md`](./deploy/cloudflare-byo/README.md) to deploy onto **your own `$0` Cloudflare account** in 5 minutes.
 
 ---
 
-## Local MIT Core vs. Hosted Cloud Pro API
-
-| Tier | Price (One-Time Base USDC) | Scope |
-| --- | --- | --- |
-| **MIT Local Core** | **`0 USDC`** | Unlimited local SQLite accounts, all drawdown modes, 8 CME contracts, 4 CSV FIFO adapters, CLI & local web dashboard forever |
-| **Cloud Pro Solo** | **`29 USDC`** | Hosted Cloud API Bearer entitlement (`EVALSHIELD-PRO-v1...`): 25,000-run up to 20-account Cloud Monte Carlo (`/api/cloud/monte-carlo`), full CME FOMC/CPI/NFP blackout schedule & multipliers (`/api/cloud/blackout-calendar`), canonical rule presets (`/api/cloud/presets`), and SSRF-guarded Discord/Telegram risk alert relays (`/api/cloud/relay/alert`) |
-| **Cloud Pro Team** | **`99 USDC`** | All Solo Cloud Pro endpoints + up to 100-account coaching-desk Cloud Monte Carlo stress tests & desk-wide exposure templates |
-
-Store your Cloud Pro token locally for CLI / scripts:
-
-```bash
-node apps/cli/dist/src/cli.js activate --token "EVALSHIELD-PRO-v1.<payload>.<sig>"
-```
-
-Call Hosted Cloud Pro API endpoints using `Authorization: Bearer EVALSHIELD-PRO-v1...`:
-
-```bash
-# Public preview vs full Pro blackout rules
-curl -H "Authorization: Bearer EVALSHIELD-PRO-v1.<payload>.<sig>" \
-  https://evalshield-copilot.apexhive-hq.workers.dev/api/cloud/blackout-calendar
-
-# Server-side 25,000-path Cloud Monte Carlo stress test
-curl -X POST https://evalshield-copilot.apexhive-hq.workers.dev/api/cloud/monte-carlo \
-  -H "Authorization: Bearer EVALSHIELD-PRO-v1.<payload>.<sig>" \
-  -H "Content-Type: application/json" \
-  -d '{"runs":25000,"accounts":4,"winRate":50,"rewardRiskRatio":1.6,"riskPerTradeUsd":250,"profitTargetUsd":3000,"maxDrawdownUsd":2000}'
-```
-
----
-
-## Core Modules
-
-1. **Drawdown & Trailing Floor Shield (`packages/core`):**
-   - Models `INTRADAY_TRAILING` (real-time equity HWM tracking), `EOD_TRAILING` (session-close rollover), and `STATIC` floors, plus firm `lockCap` caps.
-   - Applies soft `0.8 * DLL` guardrails and automatic `0.5x` risk downsizing inside `AMBER_CAUTION` zones.
-2. **CME Volatility Sizing & Micro Fallback (`packages/core`):**
-   - Pre-configured tick values and default round-trip commissions for `ES`, `MES`, `NQ`, `MNQ`, `GC`, `MGC`, `CL`, and `MCL`.
-   - Computes effective stop `max(userStopTicks, ceil(k * ATR14 / tickSize))`, subtracts commission + slippage ticks, and recommends micro contracts when full-size contracts exceed safe runway.
-3. **Session Quality & Tilt Breaker (`packages/core`):**
-   - Evaluates Globex maintenance windows, economic event blackout buffers, ATR volatility expansion, burst overtrading, and `3`-loss tilt cooldowns (`GO`, `REDUCED_SIZE`, `STAND_DOWN`).
-4. **Local SQLite Journal & Hardened HTTP Server (`packages/journal` + `apps/web`):**
-   - Content-hashed (`SHA-256`) fill ingestion prevents double-counting across overlapping CSV exports.
-   - Formula-injection-safe CSV export (`/api/journal/export.csv`) prefixes leading `=`, `+`, `-`, `@`, tab, and carriage return cells cleanly.
-   - Strict CORS (`Vary: Origin`, loopback + `EVALSHIELD_ALLOWED_ORIGINS`) and HMAC-SHA256 `timingSafeEqual` webhook verification (`/api/ingest/webhook`).
-5. **Cloud Pro API & Non-Custodial Checkout (`storefront`):**
-   - Verifies Base USDC (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`) transfers from both EOA (`EIP-191`) and Base Smart Contract Wallets (`ERC-1271` / `EIP-6492`) with atomic `TxClaimLockDO` Durable Object replay locking.
-
----
-
-## Development & Verification
-
-Workspace tests (`packages/core`, `packages/journal`, `apps/cli`):
+## Verification
 
 ```bash
 pnpm install --ignore-scripts
 pnpm run typecheck
 pnpm test
+cd storefront && pnpm install --ignore-scripts && pnpm run typecheck && pnpm test
+cd ../deploy/cloudflare-byo && pnpm install --ignore-scripts && pnpm run typecheck && pnpm test
+cd ../../apps/web && pnpm test
 ```
-
-Cloudflare Workers storefront + Cloud Pro E2E tests (`storefront`):
-
-```bash
-cd storefront
-pnpm install --ignore-scripts
-pnpm exec playwright install chromium
-pnpm run typecheck
-pnpm test
-```
-
-Local dashboard Playwright check (`apps/web`, after building workspace and installing Playwright Chromium in `storefront`):
-
-```bash
-cd apps/web && pnpm test
-```
-
----
 
 ## License & Support
 
-- Source Code: [MIT License](./LICENSE)
-- Hosted Cloud Pro API: `https://evalshield-copilot.apexhive-hq.workers.dev/`
+- License: [ApexHive Dual Source-Available License](./LICENSE)
+- Live Sandbox & Commercial Issuer: `https://evalshield-copilot.apexhive-hq.workers.dev/`
 - Support: `apexhive.hq@proton.me`
 
-If the open-source MIT tooling saves you an evaluation reset, optional Base USDC tips are welcome at `0x32eceaC45DBED9E555dAb80346aBd4Ab9C676206`.
+Optional Solo community appreciation tips (Base USDC): `0x32eceaC45DBED9E555dAb80346aBd4Ab9C676206`.

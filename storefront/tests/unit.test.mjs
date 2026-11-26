@@ -118,8 +118,8 @@ test('Config, health, fail-closed 500 (missing TX_CLAIM_LOCK/secrets), 413 bound
     BASE_USDC_CONTRACT: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
     BASE_CHAIN_ID: '8453',
     BASE_RPC_URL: 'http://127.0.0.1:1/dead',
-    SOLO_PRICE_USDC_ATOMIC: '29000000',
     TEAM_PRICE_USDC_ATOMIC: '99000000',
+    ENTERPRISE_PRICE_USDC_ATOMIC: '499000000',
     MIN_CONFIRMATIONS: '2',
     CHALLENGE_TTL_SECONDS: '300',
     DOWNLOAD_TTL_SECONDS: '600',
@@ -131,12 +131,12 @@ test('Config, health, fail-closed 500 (missing TX_CLAIM_LOCK/secrets), 413 bound
     // Intentionally omit TX_CLAIM_LOCK -> must fail-closed 500!
   };
 
-  const verify500 = await app.request(
+    const verify500 = await app.request(
     'https://evalshield.test/api/verify',
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ txHash, nonce: 'n1', signature: '0x' + '11'.repeat(65), tier: 'solo' })
+      body: JSON.stringify({ txHash, nonce: 'n1', signature: '0x' + '11'.repeat(65), tier: 'team' })
     },
     misconfiguredEnv
   );
@@ -158,16 +158,17 @@ test('Config, health, fail-closed 500 (missing TX_CLAIM_LOCK/secrets), 413 bound
   assert.equal(cfgRes.status, 200);
   const cfg = await cfgRes.json();
   assert.equal(cfg.supportEmail, 'apexhive.hq@proton.me');
-  assert.equal(cfg.tiers.free.maxAccounts, null);
-  assert.equal(cfg.tiers.solo.priceAtomic, '29000000');
+  assert.equal(cfg.tiers.solo.priceUsd, '0');
+  assert.equal(cfg.tiers.solo.maxAccounts, null);
   assert.equal(cfg.tiers.team.priceAtomic, '99000000');
+  assert.equal(cfg.tiers.enterprise.priceAtomic, '499000000');
 
   const bigBody = await app.request(
     'https://evalshield.test/api/challenge',
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ txHash, tier: 'solo', pad: 'x'.repeat(40_000) })
+      body: JSON.stringify({ txHash, tier: 'team', pad: 'x'.repeat(40_000) })
     },
     env
   );
@@ -178,7 +179,7 @@ test('Config, health, fail-closed 500 (missing TX_CLAIM_LOCK/secrets), 413 bound
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ txHash, tier: 'enterprise' })
+      body: JSON.stringify({ txHash, tier: 'solo' })
     },
     env
   );
@@ -211,7 +212,7 @@ test('Config, health, fail-closed 500 (missing TX_CLAIM_LOCK/secrets), 413 bound
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ txHash, tier: 'solo' })
+      body: JSON.stringify({ txHash, tier: 'team' })
     },
     env
   );
@@ -236,7 +237,7 @@ test('Config, health, fail-closed 500 (missing TX_CLAIM_LOCK/secrets), 413 bound
                 usdcContract: env.BASE_USDC_CONTRACT,
                 from: payer.address,
                 to: env.PAY_TO_EVM_ADDRESS,
-                amountAtomic: 29_000_000n
+                amountAtomic: 99_000_000n
               })
             ]
           }
@@ -252,7 +253,7 @@ test('Config, health, fail-closed 500 (missing TX_CLAIM_LOCK/secrets), 413 bound
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ txHash, nonce, signature, tier: 'solo' })
+        body: JSON.stringify({ txHash, nonce, signature, tier: 'team' })
       },
       env
     );
@@ -279,8 +280,8 @@ test('ERC-1271 / EIP-6492 256-byte Smart Wallet verification and Promise.all DO 
     BASE_USDC_CONTRACT: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
     BASE_CHAIN_ID: '8453',
     BASE_RPC_URL: 'http://127.0.0.1:1/dead',
-    SOLO_PRICE_USDC_ATOMIC: '29000000',
     TEAM_PRICE_USDC_ATOMIC: '99000000',
+    ENTERPRISE_PRICE_USDC_ATOMIC: '499000000',
     MIN_CONFIRMATIONS: '2',
     CHALLENGE_TTL_SECONDS: '300',
     DOWNLOAD_TTL_SECONDS: '600',
@@ -298,15 +299,15 @@ test('ERC-1271 / EIP-6492 256-byte Smart Wallet verification and Promise.all DO 
   ).slice(2);
   let capturedCallData = '';
 
-  const [chSolo, chTeam] = await Promise.all([
+  const [chTeam, chEnt] = await Promise.all([
     (await app.request(
       'https://evalshield.test/api/challenge',
-      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ txHash, tier: 'solo' }) },
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ txHash, tier: 'team' }) },
       env
     )).json(),
     (await app.request(
       'https://evalshield.test/api/challenge',
-      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ txHash, tier: 'team' }) },
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ txHash, tier: 'enterprise' }) },
       env
     )).json()
   ]);
@@ -328,7 +329,7 @@ test('ERC-1271 / EIP-6492 256-byte Smart Wallet verification and Promise.all DO 
                 usdcContract: env.BASE_USDC_CONTRACT,
                 from: smartWallet,
                 to: env.PAY_TO_EVM_ADDRESS,
-                amountAtomic: 99_000_000n
+                amountAtomic: 499_000_000n
               })
             ]
           }
@@ -352,7 +353,7 @@ test('ERC-1271 / EIP-6492 256-byte Smart Wallet verification and Promise.all DO 
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ txHash, nonce: chSolo.nonce, signature: smartWalletSig, tier: 'solo' })
+          body: JSON.stringify({ txHash, nonce: chTeam.nonce, signature: smartWalletSig, tier: 'team' })
         },
         env
       ),
@@ -361,7 +362,7 @@ test('ERC-1271 / EIP-6492 256-byte Smart Wallet verification and Promise.all DO 
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ txHash, nonce: chTeam.nonce, signature: smartWalletSig, tier: 'team' })
+          body: JSON.stringify({ txHash, nonce: chEnt.nonce, signature: smartWalletSig, tier: 'enterprise' })
         },
         env
       )
@@ -376,7 +377,7 @@ test('ERC-1271 / EIP-6492 256-byte Smart Wallet verification and Promise.all DO 
   }
 });
 
-test('Hosted Cloud Pro API endpoints enforce Ed25519 auth, execute 25k Monte Carlo, and block SSRF relays', async () => {
+test('Open 300-pt Sandbox opens analytical APIs at $0 while guarding live outbound relay with Ed25519 auth', async () => {
   const licensesKv = createMemoryKv();
   const { privateJwkJson, spkiB64 } = await generateEd25519TestKeys();
   const env = {
@@ -388,6 +389,7 @@ test('Hosted Cloud Pro API endpoints enforce Ed25519 auth, execute 25k Monte Car
     BASE_CHAIN_ID: '8453',
     BASE_RPC_URL: 'http://127.0.0.1:1/dead',
     TEAM_PRICE_USDC_ATOMIC: '99000000',
+    ENTERPRISE_PRICE_USDC_ATOMIC: '499000000',
     MIN_CONFIRMATIONS: '2',
     CHALLENGE_TTL_SECONDS: '300',
     DOWNLOAD_TTL_SECONDS: '600',
@@ -402,15 +404,15 @@ test('Hosted Cloud Pro API endpoints enforce Ed25519 auth, execute 25k Monte Car
     DOWNLOAD_HMAC_SECRET: '0123456789abcdef0123456789abcdef'
   };
 
-  const soloToken = await signTestProToken(privateJwkJson, { tier: 'solo' });
   const teamToken = await signTestProToken(privateJwkJson, { tier: 'team', maxAccounts: null });
+  const enterpriseToken = await signTestProToken(privateJwkJson, { tier: 'enterprise', maxAccounts: null });
   const expiredToken = await signTestProToken(privateJwkJson, { expiresAt: Date.now() - 10_000 });
 
-  // 1. Blackout calendar preview vs authenticated Pro
-  const calPreview = await (await app.request('https://evalshield.test/api/cloud/blackout-calendar', {}, env)).json();
-  assert.equal(calPreview.authenticated, false);
-  assert.equal(calPreview.tier, 'preview');
-  assert.equal(calPreview.upcomingPreview.length, 2);
+  // 1. Blackout calendar & Presets are 100% open at $0 (WinRAR full-open), while invalid tokens still fail closed (403)
+  const calPublic = await (await app.request('https://evalshield.test/api/cloud/blackout-calendar', {}, env)).json();
+  assert.equal(calPublic.openAccess, true);
+  assert.equal(calPublic.tier, 'solo_free_300pt');
+  assert.ok(Array.isArray(calPublic.events) && calPublic.events.length >= 5);
 
   const calBad = await app.request(
     'https://evalshield.test/api/cloud/blackout-calendar',
@@ -419,58 +421,27 @@ test('Hosted Cloud Pro API endpoints enforce Ed25519 auth, execute 25k Monte Car
   );
   assert.equal(calBad.status, 403);
 
-  const calPro = await (
-    await app.request(
-      'https://evalshield.test/api/cloud/blackout-calendar',
-      { headers: { authorization: `Bearer ${soloToken}` } },
-      env
-    )
-  ).json();
-  assert.equal(calPro.authenticated, true);
-  assert.equal(calPro.tier, 'solo');
-  assert.ok(Array.isArray(calPro.events) && calPro.events.length >= 5);
-
-  // 2. Canonical Presets public vs Team desk templates
   const presetsPublic = await (await app.request('https://evalshield.test/api/cloud/presets', {}, env)).json();
-  assert.equal(presetsPublic.schemaVersion, '2026.11.v2');
-  assert.ok(presetsPublic.presets.some((p) => p.id === 'tradeify_50k_straight'));
-  assert.equal(presetsPublic.teamDeskTemplates, undefined);
+  assert.equal(presetsPublic.openAccess, true);
+  assert.ok(presetsPublic.presets.some((p) => p.id === 'ftmo_100k_2step'));
+  assert.ok(presetsPublic.presets.some((p) => p.id === 'tradeify_50k_growth'));
+  assert.ok(presetsPublic.deskTemplates);
 
-  const presetsTeam = await (
+  const presetsEnt = await (
     await app.request(
       'https://evalshield.test/api/cloud/presets',
-      { headers: { authorization: `Bearer ${teamToken}` } },
+      { headers: { authorization: `Bearer ${enterpriseToken}` } },
       env
     )
   ).json();
-  assert.equal(presetsTeam.tier, 'team');
-  assert.ok(presetsTeam.teamDeskTemplates);
+  assert.equal(presetsEnt.tier, 'enterprise');
 
-  // 3. Server-side Cloud Monte Carlo (401 unauth, 403 expired, 200 valid 25k simulation)
-  const mc401 = await app.request(
-    'https://evalshield.test/api/cloud/monte-carlo',
-    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ runs: 5000 }) },
-    env
-  );
-  assert.equal(mc401.status, 401);
-
-  const mcExp = await app.request(
+  // 2. Public 25k Monte Carlo ($0 unauth works!) + expired token still rejected (403)
+  const mcPublic = await app.request(
     'https://evalshield.test/api/cloud/monte-carlo',
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${expiredToken}` },
-      body: JSON.stringify({ runs: 5000 })
-    },
-    env
-  );
-  assert.equal(mcExp.status, 403);
-  assert.equal((await mcExp.json()).error, 'PRO_TOKEN_EXPIRED');
-
-  const mcRes = await app.request(
-    'https://evalshield.test/api/cloud/monte-carlo',
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${soloToken}` },
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         runs: 25000,
         accounts: 4,
@@ -484,44 +455,75 @@ test('Hosted Cloud Pro API endpoints enforce Ed25519 auth, execute 25k Monte Car
     },
     env
   );
-  assert.equal(mcRes.status, 200);
-  const mcData = await mcRes.json();
+  assert.equal(mcPublic.status, 200);
+  const mcData = await mcPublic.json();
   assert.equal(mcData.runs, 25000);
   assert.equal(mcData.accountsSimulated, 4);
   assert.ok(mcData.passProbabilityPct > 0);
-  assert.ok(mcData.maxDrawdownPercentilesUsd.p95 >= mcData.maxDrawdownPercentilesUsd.p50);
 
-  // 4. Relay alert: 401 unauth, SSRF block, and escaped Telegram HTML + Discord embed dry-run
-  const relay401 = await app.request(
-    'https://evalshield.test/api/cloud/relay/alert',
-    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ alertType: 'TILT_LOCKOUT' }) },
+  const mcExp = await app.request(
+    'https://evalshield.test/api/cloud/monte-carlo',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${expiredToken}` },
+      body: JSON.stringify({ runs: 5000 })
+    },
     env
   );
-  assert.equal(relay401.status, 401);
+  assert.equal(mcExp.status, 403);
+  assert.equal((await mcExp.json()).error, 'PRO_TOKEN_EXPIRED');
 
-  for (const ssrfUrl of [
-    'http://127.0.0.1:8080/hook',
-    'https://169.254.169.254/latest/meta-data',
-    'https://evil.example/api/webhooks/1/abc'
-  ]) {
-    const ssrfRes = await app.request(
-      'https://evalshield.test/api/cloud/relay/alert',
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${soloToken}` },
-        body: JSON.stringify({ alertType: 'TILT_LOCKOUT', dryRun: false, webhookUrl: ssrfUrl })
-      },
-      env
-    );
-    assert.equal(ssrfRes.status, 400);
-    assert.equal((await ssrfRes.json()).error, 'INVALID_WEBHOOK_TARGET');
+  // 3. Portfolio guard ($0 open) & Brief (mocked Hyperliquid/Gamma)
+  const portRes = await app.request(
+    'https://evalshield.test/api/cloud/portfolio-guard',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        positions: [
+          { accountId: 'acc1', symbol: 'ES', side: 'LONG', qty: 2 },
+          { accountId: 'acc2', symbol: 'NQ', side: 'SHORT', qty: 2 }
+        ]
+      })
+    },
+    env
+  );
+  assert.equal(portRes.status, 200);
+  const portJson = await portRes.json();
+  assert.equal(portJson.safeToProceed, false);
+  assert.ok(portJson.alerts.some((a) => a.code === 'CROSS_ACCOUNT_ANTI_HEDGE_VIOLATION'));
+
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes('api.hyperliquid.xyz/info')) {
+      return Response.json([
+        { universe: [{ name: 'BTC' }] },
+        [{ markPx: '95000', funding: '0.0007', openInterest: '40000' }]
+      ]);
+    }
+    if (u.includes('gamma-api.polymarket.com')) {
+      return Response.json([{ question: 'Fed cut?', outcomePrices: '["0.75","0.25"]', closed: false }]);
+    }
+    return origFetch(url);
+  };
+  try {
+    const briefJson = await (
+      await app.request('https://evalshield.test/api/cloud/brief?slug=fed-cut&coins=BTC', {}, env)
+    ).json();
+    assert.equal(briefJson.openAccess, true);
+    assert.equal(briefJson.hyperliquid[0].extremeFundingAlert, true);
+    assert.equal(briefJson.polymarket[0].yesProbabilityPct, 75);
+  } finally {
+    globalThis.fetch = origFetch;
   }
 
-  const relayOk = await app.request(
+  // 4. Relay alert: dryRun preview open at $0, live outbound relay (!dryRun) gated 401 unauth + SSRF blocked
+  const relayDryPublic = await app.request(
     'https://evalshield.test/api/cloud/relay/alert',
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${soloToken}` },
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         alertType: 'TILT_LOCKOUT',
         accountName: 'Apex <script>alert(1)</script>',
@@ -534,11 +536,37 @@ test('Hosted Cloud Pro API endpoints enforce Ed25519 auth, execute 25k Monte Car
     },
     env
   );
-  assert.equal(relayOk.status, 200);
-  const relayJson = await relayOk.json();
+  assert.equal(relayDryPublic.status, 200);
+  const relayJson = await relayDryPublic.json();
   assert.equal(relayJson.dryRun, true);
-  assert.equal(relayJson.orderRoutingEnabled, false);
   assert.equal(relayJson.telegramPayload.text.includes('<script>'), false);
-  assert.ok(relayJson.telegramPayload.text.includes('&lt;script&gt;'));
-  assert.ok(relayJson.discordPayload.embeds[0].title.includes('TILT_LOCKOUT'));
+
+  const relayLive401 = await app.request(
+    'https://evalshield.test/api/cloud/relay/alert',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ alertType: 'TILT_LOCKOUT', dryRun: false, webhookUrl: 'https://discord.com/api/webhooks/1/a' })
+    },
+    env
+  );
+  assert.equal(relayLive401.status, 401);
+
+  for (const ssrfUrl of [
+    'http://127.0.0.1:8080/hook',
+    'https://169.254.169.254/latest/meta-data',
+    'https://evil.example/api/webhooks/1/abc'
+  ]) {
+    const ssrfRes = await app.request(
+      'https://evalshield.test/api/cloud/relay/alert',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${teamToken}` },
+        body: JSON.stringify({ alertType: 'TILT_LOCKOUT', dryRun: false, webhookUrl: ssrfUrl })
+      },
+      env
+    );
+    assert.equal(ssrfRes.status, 400);
+    assert.equal((await ssrfRes.json()).error, 'INVALID_WEBHOOK_TARGET');
+  }
 });

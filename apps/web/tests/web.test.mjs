@@ -94,8 +94,21 @@ test('apps/web static dashboard integrates live SQLite journal, risk shield, CSV
         await page.waitForSelector('#license-status.ok:not([hidden])');
         assert.ok((await page.locator('#badge-license').innerText()).includes('Pro Solo'));
 
-        // Evaluate risk check + CSV FIFO import
+        // Evaluate risk check + Cross-market XAUUSD spread + Pre-Trade Thesis + CSV FIFO import
+        await page.selectOption('#risk-symbol', 'XAUUSD');
+        await page.fill('#risk-stop-ticks', '200');
+        await page.fill('#risk-spread-ticks', '75');
+        await page.click('#run-risk-btn');
+        await page.waitForFunction(() => document.getElementById('out-contracts')?.textContent?.includes('XAUUSD'));
+
+        await page.locator('details').first().click();
+        await page.fill('#pt-thesis', 'London sweep reclaim v3 E2E');
+        await page.click('#save-pretrade-btn');
+        await page.waitForSelector('#pretrade-status.ok:not([hidden])');
+
         await page.selectOption('#risk-symbol', 'MNQ');
+        await page.fill('#risk-spread-ticks', '0');
+        await page.fill('#risk-stop-ticks', '16');
         await page.click('#run-risk-btn');
         await page.waitForFunction(() => document.getElementById('out-contracts')?.textContent?.includes('MNQ'));
         assert.ok((await page.locator('#out-contracts').innerText()).includes('MNQ'));

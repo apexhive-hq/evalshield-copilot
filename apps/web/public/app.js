@@ -42,15 +42,18 @@
   function renderLicenseBadge() {
     const badge = $('badge-license');
     const lic = state.license || { tier: 'free', maxAccounts: null };
-    if (lic.tier === 'team') {
-      badge.textContent = 'Pro Team (Cloud API)';
+    if (lic.tier === 'enterprise') {
+      badge.textContent = 'Commercial Enterprise (100+ Seats)';
+      badge.className = 'pill';
+    } else if (lic.tier === 'team') {
+      badge.textContent = 'Commercial Team (2-99 Seats)';
       badge.className = 'pill';
     } else if (lic.tier === 'solo') {
       badge.textContent = 'Pro Solo (Cloud API)';
       badge.className = 'pill';
     } else {
-      badge.textContent = 'MIT Free (Local Core)';
-      badge.className = 'pill warn';
+      badge.textContent = 'Solo $0 (Full 300-pt Local)';
+      badge.className = 'pill';
     }
   }
 
@@ -125,10 +128,13 @@
     const acc = activeAccount();
     if (!acc) return;
     const consecRaw = $('risk-consec-losses').value.trim();
+    const spreadEl = $('risk-spread-ticks');
+    const spreadTicks = spreadEl ? Math.max(0, Number(spreadEl.value || 0)) : 0;
     const payload = {
       accountId: acc.id,
       symbol: $('risk-symbol').value,
       userStopTicks: Math.max(1, Number($('risk-stop-ticks').value || 10)),
+      spreadTicks,
       atr14: Math.max(0, Number($('risk-atr').value || 0)),
       sessionFilter: {
         skipGlobexCheck: true,
@@ -144,6 +150,9 @@
     $('out-regime').textContent = result.status;
     $('out-floor').textContent = `$${Math.round(result.floor).toLocaleString()} / $${Math.round(result.effectiveHwm).toLocaleString()}`;
     $('out-buffer').textContent = `$${Math.round(result.remainingBuffer).toLocaleString()}`;
+    if ($('out-headroom')) {
+      $('out-headroom').textContent = `$${Math.round(result.remainingSafeAdditionalProfitUsd ?? 0).toLocaleString()}`;
+    }
     $('out-contracts').textContent = `${result.maxContractsAllowed} ${result.symbol}`;
     $('out-micro').textContent = result.microFallbackSymbol
       ? `${result.microFallbackContracts} ${result.microFallbackSymbol}`
@@ -153,9 +162,48 @@
     const box = $('risk-advisory');
     const details = (result.session.details && result.session.details.length)
       ? result.session.details.join(' | ')
-      : `Stop ${result.stopTicksEffective} ticks ($${result.lossPerContract}/contract). Consistency ${(result.consistencyRatio * 100).toFixed(0)}%.`;
+      : `Stop ${result.stopTicksEffective} ticks ($${result.lossPerContract}/unit). Safe headroom: $${result.remainingSafeAdditionalProfitUsd}.`;
     const kind = result.status === 'RED_LOCKOUT' ? 'error' : result.status === 'AMBER_CAUTION' ? 'warn' : 'ok';
     showBox(box, `${result.status}: ${details}`, kind);
+  }
+
+  async function refreshBrief() {
+    const clockEl = $('brief-clock');
+    const hlEl = $('brief-hl');
+    const polyEl = $('brief-poly');
+    const rssBox = $('brief-rss');
+    if (!clockEl) return;
+    try {
+      const { brief } = await apiJson('/api/brief');
+      clockEl.textContent = brief.dstMismatch?.active
+        ? 'DST Mismatch (-1h EU/US)'
+        : 'Normal Sync (17:00 ET)';
+      if (brief.hyperliquid && brief.hyperliquid.length > 0) {
+        hlEl.textContent = brief.hyperliquid
+          .slice(0, 2)
+          .map((h) => `${h.coin} $${Math.round(h.markPx).toLocaleString()} (${h.annualizedFundingPct}%)`)
+          .join(' | ');
+      } else {
+        hlEl.textContent = 'Offline / Waiting';
+      }
+      if (brief.polymarket && brief.polymarket.length > 0) {
+        polyEl.textContent = brief.polymarket
+          .slice(0, 2)
+          .map((p) => `${p.slug}: ${p.yesProbabilityPct ?? '-'}%`)
+          .join(' | ');
+      }
+      if (brief.rssHighlights && brief.rssHighlights.length > 0) {
+        showBox(
+          rssBox,
+          'Filtered RSS (max 3): ' + brief.rssHighlights.map((r) => `${r.source}: ${r.title}`).join(' · '),
+          'ok'
+        );
+      } else if (rssBox) {
+        rssBox.hidden = true;
+      }
+    } catch {
+      clockEl.textContent = 'Offline Local Mode';
+    }
   }
 
   async function refreshJournal() {
@@ -260,6 +308,7 @@
       await refreshAccountsAndSelect();
       await runRiskCheck();
       await refreshJournal();
+      refreshBrief();
       runMonteCarlo();
     } catch (err) {
       showBox($('account-status'), err?.message || String(err), 'error');
@@ -392,6 +441,94 @@
       showBox(statusEl, err?.message || String(err), 'error');
     }
   });
+
+  if ($('refresh-brief-btn')) {
+    $('refresh-brief-btn').addEventListener('click', refreshBrief);
+  }
+
+  if ($('save-pretrade-btn')) {
+    $('save-pretrade-btn').addEventListener('click', async () => {
+      const acc = activeAccount();
+      const statusEl = $('pretrade-status');
+      if (!acc) return;
+      const thesisNote = $('pt-thesis').value.trim();
+      if (!thesisNote) {
+        showBox(statusEl, 'Enter a short pre-trade thesis note first.', 'error');
+        return;
+      }
+      try {
+        const { audit } = await apiJson('/api/journal/pretrade', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accountId: acc.id,
+            symbol: $('risk-symbol').value,
+            side: $('pt-side').value,
+            plannedQty: Math.max(0.01, Number($('pt-qty').value || 1)),
+            stopTicks: Math.max(1, Number($('risk-stop-ticks').value || 10)),
+            thesisNote,
+          }),
+        });
+        showBox(
+          statusEl,
+          `Logged ${audit.symbol} ${audit.side} snapshot (Buffer $${audit.remainingBufferAtEntry}, Headroom $${audit.consistencyHeadroomUsd}).`,
+          'ok'
+        );
+      } catch (err) {
+        showBox(statusEl, err?.message || String(err), 'error');
+      }
+    });
+  }
+
+  if ($('add-conn-btn')) {
+    $('add-conn-btn').addEventListener('click', async () => {
+      const statusEl = $('conn-status');
+      try {
+        const keywords = ($('conn-keywords').value || '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const { connector } = await apiJson('/api/connectors', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            kind: $('conn-kind').value,
+            label: $('conn-label').value.trim() || 'BYO Source',
+            target: $('conn-target').value.trim(),
+            keywords,
+          }),
+        });
+        showBox(statusEl, `Saved BYO connector "${connector.label}" (${connector.kind}).`, 'ok');
+        refreshBrief();
+      } catch (err) {
+        showBox(statusEl, err?.message || String(err), 'error');
+      }
+    });
+  }
+
+  if ($('run-portfolio-guard-btn')) {
+    $('run-portfolio-guard-btn').addEventListener('click', async () => {
+      const statusEl = $('conn-status');
+      const acc = activeAccount();
+      if (!acc) return;
+      try {
+        const { guard } = await apiJson('/api/portfolio/guard', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            positions: [{ accountId: acc.id, symbol: $('risk-symbol').value, side: $('pt-side')?.value || 'LONG', qty: 1 }],
+          }),
+        });
+        showBox(
+          statusEl,
+          `Portfolio Safe=${guard.safeToProceed} | Combined Safe Buffer: $${guard.totalRemainingBufferUsd ?? 0} | Alerts: ${guard.alerts.length}`,
+          guard.safeToProceed ? 'ok' : 'warn'
+        );
+      } catch (err) {
+        showBox(statusEl, err?.message || String(err), 'error');
+      }
+    });
+  }
 
   init();
 })();
