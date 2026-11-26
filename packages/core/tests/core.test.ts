@@ -240,11 +240,11 @@ test('Ed25519 EVALSHIELD-PRO-v1 license verification & account tier limits', () 
   assert.equal(ok.tier, 'solo');
   assert.equal(getMaxAllowedAccounts(ok), 20);
 
-  // Tampered payload rejected
+  // Tampered payload rejected; MIT Local Core unlocks local accounts without restriction
   const tamperedPayload = Buffer.from(JSON.stringify({ ...payload, tier: 'team' }), 'utf8').toString('base64url');
   const bad = verifyEvalShieldLicenseToken(`${TOKEN_PREFIX}${tamperedPayload}.${sigB64}`, {
     publicKeySpkiB64: spkiB64
   });
   assert.equal(bad.valid, false);
-  assert.equal(getMaxAllowedAccounts(bad), 1);
+  assert.equal(getMaxAllowedAccounts(bad), null);
 });

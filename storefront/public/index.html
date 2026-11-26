@@ -17,6 +17,7 @@
       <nav class="nav-links" aria-label="Primary navigation">
         <a href="#calculator">Risk &amp; Drawdown Shield</a>
         <a href="#monte-carlo">Monte Carlo Survival</a>
+        <a href="#cloud-pro">Cloud Pro API</a>
         <a href="#licensing">Open-Core Licensing</a>
         <a href="https://github.com/apexhive-hq/evalshield-copilot" target="_blank" rel="noopener noreferrer">GitHub MIT</a>
       </nav>
@@ -25,7 +26,7 @@
 
   <main class="container">
     <section class="hero">
-      <span class="badge-pill">MIT Open-Core ($0 Local) · Zero Broker Keys · Read-Only Advisory Math</span>
+      <span class="badge-pill">MIT Local Core ($0 Unlimited) · Hosted Cloud Pro API · Read-Only Advisory Math</span>
       <h1>Prop-Firm Drawdown Shield, CME Position Sizer &amp; Discipline Co-Pilot</h1>
       <p class="subtitle">
         Calculate exact Intraday vs. EOD trailing floors, ATR-adjusted CME contract caps with automatic micro fallbacks (<code>ES→MES</code>, <code>NQ→MNQ</code>, <code>GC→MGC</code>, <code>CL→MCL</code>), consistency-cap headroom, and 10,000-run evaluation survival odds.
@@ -172,10 +173,24 @@
       </div>
     </section>
 
-    <section id="licensing" class="card">
-      <h2>Open-Core Licensing &amp; Non-Custodial Base USDC Checkout</h2>
+    <section id="cloud-pro" class="card">
+      <div class="toolbar" style="justify-content: space-between; margin-bottom: 12px;">
+        <h2 style="margin: 0;">Hosted Cloud Pro API (Non-Bypassable Server Endpoints)</h2>
+        <div class="toolbar">
+          <button id="cloud-blackouts-btn" class="btn" type="button">Fetch Macro Blackout Feed</button>
+          <button id="cloud-presets-btn" class="btn" type="button">Sync Canonical Firm Presets</button>
+        </div>
+      </div>
       <p class="subtitle">
-        MIT Local Core (`1` active account, all 3 drawdown modes, 8 CME contracts, and 4 broker CSV FIFO parsers) runs 100% offline at <code>$0</code> forever. Upgrade only for multi-account presets (20 or unlimited accounts), webhook ATR ingestion, and mentor CSV exports.
+        Server-hosted endpoints authenticated with your Ed25519 Bearer token (<code>Authorization: Bearer EVALSHIELD-PRO-v1...</code>): 25,000-run multi-account Monte Carlo stress test (<code>POST /api/cloud/monte-carlo</code>), CME FOMC/CPI/NFP blackout schedule (<code>GET /api/cloud/blackout-calendar</code>), canonical prop firm rule schemas (<code>GET /api/cloud/presets</code>), and SSRF-guarded Discord/Telegram risk alert relays (<code>POST /api/cloud/relay/alert</code>).
+      </p>
+      <pre id="cloud-preview-output" class="code-block">Click "Fetch Macro Blackout Feed" or "Sync Canonical Firm Presets" to inspect live server responses.</pre>
+    </section>
+
+    <section id="licensing" class="card">
+      <h2>Local MIT Core ($0) vs Hosted Cloud Pro API (Base USDC)</h2>
+      <p class="subtitle">
+        <strong>MIT Local Core</strong> runs unlimited local accounts, all 3 drawdown modes, 8 CME contracts, CLI checks, and 4 broker CSV FIFO parsers 100% free forever at <code>$0</code>. Upgrade only for hosted non-bypassable Cloud Pro API compute, canonical rule sync, macro event blackouts, and Discord/Telegram alert relays.
       </p>
 
       <div class="pricing-grid">
@@ -184,7 +199,7 @@
             <h3>MIT Local Core</h3>
             <div class="tier-price">0 USDC</div>
             <ul class="tier-list">
-              <li>1 active prop evaluation account</li>
+              <li>Unlimited local prop evaluation accounts (SQLite)</li>
               <li>Full Intraday / EOD / Static math + CME sizing</li>
               <li>Tradovate, NT8, Rithmic &amp; TradingView CSV FIFO</li>
             </ul>
@@ -194,12 +209,12 @@
 
         <div class="tier-card featured">
           <div>
-            <h3>Pro Solo Funded-Prep</h3>
+            <h3>Cloud Pro Solo</h3>
             <div class="tier-price">29 USDC</div>
             <ul class="tier-list">
-              <li>Up to 20 simultaneous eval/PA accounts</li>
-              <li>Firm templates (Topstep / Apex / MFFU / Tradeify)</li>
-              <li>Read-only webhook ATR sink &amp; 10k Monte Carlo export</li>
+              <li>Up to 20-account Cloud Monte Carlo stress tests (25k runs)</li>
+              <li>CME FOMC/CPI/NFP blackout API &amp; rule multipliers</li>
+              <li>SSRF-guarded Discord/Telegram Tilt &amp; DLL alert relays</li>
             </ul>
           </div>
           <button class="btn btn-primary tier-pick-btn" type="button" data-tier="solo">Select Solo (29 USDC)</button>
@@ -207,12 +222,12 @@
 
         <div class="tier-card">
           <div>
-            <h3>Pro Team / Coaching Desk</h3>
+            <h3>Cloud Pro Team</h3>
             <div class="tier-price">99 USDC</div>
             <ul class="tier-list">
-              <li>Unlimited trader profiles &amp; desk rollups</li>
-              <li>Desk-wide exposure cap templates</li>
-              <li>Offline Ed25519 verification</li>
+              <li>Up to 100-account desk Cloud Monte Carlo rollups</li>
+              <li>Team coaching desk risk cap templates via Cloud API</li>
+              <li>Base EOA + ERC-1271 / EIP-6492 Smart Wallet verified</li>
             </ul>
           </div>
           <button class="btn tier-pick-btn" type="button" data-tier="team">Select Team (99 USDC)</button>
@@ -221,7 +236,7 @@
 
       <div class="checkout-box">
         <div id="self-custody-warning" class="warning-banner">
-          <strong>Self-Custody Base Mainnet Notice:</strong> Send Base USDC (<code>0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913</code>, Chain ID <code>8453</code> / <code>0x2105</code>) directly from a wallet whose signing key you control to treasury <code>0x32eceaC45DBED9E555dAb80346aBd4Ab9C676206</code>. Do not send from centralized exchange hot wallets (an EIP-191 ownership signature is required). Requires 2 Base confirmations.
+          <strong>Self-Custody Base Mainnet Notice:</strong> Send Base USDC (<code>0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913</code>, Chain ID <code>8453</code> / <code>0x2105</code>) directly from a wallet you control — EOA (EIP-191) or Base Smart Wallet (<code>ERC-1271</code> / <code>EIP-6492</code>, e.g. Coinbase Smart Wallet / Safe) — to treasury <code>0x32eceaC45DBED9E555dAb80346aBd4Ab9C676206</code>. Do not send from centralized exchange hot wallets. Requires 2 Base confirmations.
         </div>
 
         <div class="toolbar">

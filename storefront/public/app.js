@@ -282,6 +282,23 @@
     await verifyAndClaim(txHash, tier);
   });
 
+  async function inspectCloudEndpoint(path) {
+    const outEl = $('cloud-preview-output');
+    if (!outEl) return;
+    const token = ($('license-token-text')?.textContent || '').trim();
+    const headers = token ? { Authorization: 'Bearer ' + token } : {};
+    try {
+      const res = await fetch(path, { headers });
+      const data = await res.json();
+      outEl.textContent = JSON.stringify(data, null, 2);
+    } catch (err) {
+      outEl.textContent = err?.message || String(err);
+    }
+  }
+
+  $('cloud-blackouts-btn')?.addEventListener('click', () => inspectCloudEndpoint('/api/cloud/blackout-calendar'));
+  $('cloud-presets-btn')?.addEventListener('click', () => inspectCloudEndpoint('/api/cloud/presets'));
+
   recomputeShield();
   runMonteCarlo();
 })();

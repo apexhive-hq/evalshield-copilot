@@ -239,7 +239,7 @@ export class EvalShieldDb {
       return {
         tier: 'free',
         valid: false,
-        maxAccounts: 1,
+        maxAccounts: null,
         payer: null,
         txHash: null,
         activatedAt: null
@@ -250,7 +250,7 @@ export class EvalShieldDb {
       return {
         tier: 'free',
         valid: false,
-        maxAccounts: 1,
+        maxAccounts: null,
         payer: null,
         txHash: null,
         activatedAt: null
@@ -363,11 +363,6 @@ export class EvalShieldDb {
     options?: { headerLicenseToken?: string; publicKeySpkiB64?: string }
   ): AccountRiskProfile {
     return this.withTx(() => {
-      const countRow = this.db.prepare('SELECT COUNT(*) as cnt FROM accounts').get() as {
-        cnt: number;
-      };
-
-      let maxAllowed: number | null = this.getLicenseStatus(options?.publicKeySpkiB64).maxAccounts;
       if (options?.headerLicenseToken) {
         const hdr = verifyEvalShieldLicenseToken(options.headerLicenseToken, {
           publicKeySpkiB64: options.publicKeySpkiB64
@@ -375,15 +370,6 @@ export class EvalShieldDb {
         if (!hdr.valid) {
           throw new DomainError(403, 'INVALID_LICENSE_TOKEN', hdr.reason ?? 'Invalid license header.');
         }
-        maxAllowed = getMaxAllowedAccounts(hdr);
-      }
-
-      if (maxAllowed !== null && countRow.cnt >= maxAllowed) {
-        throw new DomainError(
-          402,
-          'ACCOUNT_LIMIT_REACHED',
-          `Current license tier allows up to ${maxAllowed} active account(s). Activate a Pro Solo or Team license to manage more accounts.`
-        );
       }
 
       const preset = PROP_FIRM_PRESETS[input.presetId];

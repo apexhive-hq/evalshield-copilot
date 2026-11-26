@@ -1,9 +1,9 @@
 {
   "name": "evalshield-copilot",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "license": "MIT",
-  "description": "Open-Core AI Futures & Prop-Firm Evaluation Risk & Discipline Co-Pilot (human-in-the-loop, zero order routing).",
+  "description": "Open-Core AI Futures & Prop-Firm Evaluation Risk & Discipline Co-Pilot ($0 MIT Local Core + Hosted Cloud Pro API; strictly read-only, zero order routing).",
   "type": "module",
   "engines": {
     "node": ">=24.0.0"

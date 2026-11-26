@@ -1,12 +1,34 @@
 import { createPrivateKey, sign as nodeEd25519Sign } from 'node:crypto';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { verifyMessage } from 'viem';
+import {
+  parseStrictHexBigInt,
+  rpcCallWithFailover,
+  sumBaseUsdcTransfers,
+  verifySmartWalletOrEoaSignature,
+  type RpcReceipt
+} from './base-verifier.ts';
+import {
+  authenticateCloudProRequest,
+  buildBlackoutCalendarResponse,
+  buildCloudPresetsResponse,
+  processCloudRelayAlert,
+  runServerMonteCarlo
+} from './cloud-pro.ts';
+import { TxClaimLockDO, type Tier } from './tx-lock-do.ts';
+
+export { TxClaimLockDO };
+
+export interface TxClaimLockNamespace {
+  idFromName(name: string): DurableObjectId;
+  get(id: DurableObjectId): DurableObjectStub;
+}
 
 export interface Env {
   ASSETS: Fetcher;
   LICENSES_KV: KVNamespace;
   GLOBAL_CLAIMED_TX_KV: KVNamespace;
+  TX_CLAIM_LOCK?: TxClaimLockNamespace;
   BRAND_NAME: string;
   PRODUCT_ID: string;
   TOKEN_PREFIX: string;
@@ -28,14 +50,11 @@ export interface Env {
   DOWNLOAD_HMAC_SECRET?: string;
 }
 
-type Tier = 'solo' | 'team';
-
-const ERC20_TRANSFER_TOPIC =
-  '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const TX_HASH_RE = /^0x[0-9a-fA-F]{64}$/;
-const SIG_RE = /^0x[0-9a-fA-F]{130}$/;
-const STRICT_HEX_RE = /^0x[0-9a-fA-F]+$/;
+// Accepts 65-byte EOA EIP-191 signatures AND variable-length ABI-encoded ERC-1271 / EIP-6492 Smart Wallet signatures.
+const SIG_RE = /^0x(?:[0-9a-fA-F]{2}){32,8192}$/;
 const SCOPE_STOREFRONT = 'storefront:evalshield-copilot';
+const MAX_JSON_BYTES = 32 * 1024;
 
 const DEFAULT_BASE_RPC_URLS = [
   'https://mainnet.base.org',
@@ -70,33 +89,16 @@ interface DownloadGrantRecord {
   licenseToken: string;
 }
 
-interface RpcLog {
-  address: string;
-  topics: string[];
-  data: string;
-}
-
-interface RpcReceipt {
-  status: string;
-  blockNumber: string;
-  logs: RpcLog[];
-}
-
 function parseTier(raw: string | undefined): Tier | null {
   const t = (raw ?? '').trim();
   if (t === 'solo' || t === 'team') return t;
   return null;
 }
 
-function parseStrictHexBigInt(val: unknown): bigint | null {
-  if (typeof val !== 'string' || !STRICT_HEX_RE.test(val)) return null;
-  return BigInt(val);
-}
-
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = '';
   for (let i = 0; i < bytes.length; i += 1) {
-    binary += String.fromCharCode(bytes[i]);
+    binary += String.fromCharCode(bytes[i]!);
   }
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
@@ -132,10 +134,6 @@ async function hmacSha256Hex(secret: string, message: string): Promise<string> {
   return toHex(new Uint8Array(sig));
 }
 
-function normalizeAddressFromTopic(topic: string): string {
-  return `0x${topic.slice(-40).toLowerCase()}`;
-}
-
 function getTierPriceAtomic(env: Env, tier: Tier): bigint {
   if (tier === 'team') return BigInt(env.TEAM_PRICE_USDC_ATOMIC || '99000000');
   return BigInt(env.SOLO_PRICE_USDC_ATOMIC || '29000000');
@@ -154,53 +152,40 @@ function getBaseRpcUrls(env: Env): string[] {
   return DEFAULT_BASE_RPC_URLS;
 }
 
-async function rpcCallSingle<T>(rpcUrl: string, method: string, params: unknown[]): Promise<T> {
-  const res = await fetch(rpcUrl, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-    signal: AbortSignal.timeout(6000)
-  });
-  if (!res.ok) throw new Error(`RPC HTTP ${res.status}`);
-  const json = (await res.json()) as { result?: T; error?: { message?: string } };
-  if (json.error) throw new Error(`RPC error: ${json.error.message ?? 'unknown'}`);
-  return json.result as T;
-}
-
-async function rpcCallWithFailover<T>(urls: string[], method: string, params: unknown[]): Promise<T> {
-  let lastError: unknown;
-  for (const url of urls) {
-    try {
-      return await rpcCallSingle<T>(url, method, params);
-    } catch (err) {
-      lastError = err;
+async function parseBoundedJsonBody<T = Record<string, unknown>>(
+  request: Request,
+  maxBytes = MAX_JSON_BYTES
+): Promise<
+  | { ok: true; data: T }
+  | { ok: false; status: 400 | 413; error: string; message: string }
+> {
+  const contentLen = request.headers.get('content-length');
+  if (contentLen && /^\d+$/.test(contentLen) && Number(contentLen) > maxBytes) {
+    return {
+      ok: false,
+      status: 413,
+      error: 'PAYLOAD_TOO_LARGE',
+      message: `JSON payload exceeds ${maxBytes} bytes.`
+    };
+  }
+  const rawText = await request.text();
+  if (new TextEncoder().encode(rawText).byteLength > maxBytes) {
+    return {
+      ok: false,
+      status: 413,
+      error: 'PAYLOAD_TOO_LARGE',
+      message: `JSON payload exceeds ${maxBytes} bytes.`
+    };
+  }
+  try {
+    const parsed = JSON.parse(rawText);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { ok: false, status: 400, error: 'INVALID_JSON', message: 'Expected JSON object.' };
     }
+    return { ok: true, data: parsed as T };
+  } catch {
+    return { ok: false, status: 400, error: 'INVALID_JSON', message: 'Malformed JSON body.' };
   }
-  throw new Error(
-    `All Base RPC endpoints failed: ${lastError instanceof Error ? lastError.message : 'unknown'}`
-  );
-}
-
-function sumBaseUsdcTransfers(
-  logs: RpcLog[] | undefined,
-  expectedUsdcContract: string,
-  expectedPayTo: string
-): Map<string, bigint> {
-  const expectedUsdc = expectedUsdcContract.toLowerCase();
-  const expectedTo = expectedPayTo.toLowerCase();
-  const payerTotals = new Map<string, bigint>();
-  for (const log of logs ?? []) {
-    if (log.address?.toLowerCase() !== expectedUsdc) continue;
-    if (!log.topics || log.topics.length < 3) continue;
-    if (log.topics[0]?.toLowerCase() !== ERC20_TRANSFER_TOPIC) continue;
-    const from = normalizeAddressFromTopic(log.topics[1]);
-    const to = normalizeAddressFromTopic(log.topics[2]);
-    if (to !== expectedTo) continue;
-    const value = parseStrictHexBigInt(log.data);
-    if (value === null) continue;
-    payerTotals.set(from, (payerTotals.get(from) ?? 0n) + value);
-  }
-  return payerTotals;
 }
 
 function buildChallengeMessage(params: {
@@ -254,14 +239,17 @@ async function signEvalShieldLicense(
 const app = new Hono<{ Bindings: Env }>();
 
 app.onError((err, c) => {
-  console.error('[evalshield-copilot-store unhandled]', err instanceof Error ? err.stack || err.message : String(err));
+  console.error(
+    '[evalshield-copilot-store unhandled]',
+    err instanceof Error ? err.stack || err.message : String(err)
+  );
   return c.json({ error: 'INTERNAL_ERROR' }, 500);
 });
 
 const apiCors = cors({
   origin: '*',
   allowMethods: ['GET', 'POST', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'X-EvalShield-License']
+  allowHeaders: ['Authorization', 'Content-Type', 'X-EvalShield-License']
 });
 
 app.use('/api/*', apiCors);
@@ -292,10 +280,19 @@ app.get('/api/health', (c) => {
   return c.json({
     ok: true,
     service: 'evalshield-copilot',
-    openCoreLicense: 'MIT (1 Account $0 Forever)',
+    version: '2.0.0',
+    openCoreLicense: 'MIT Local Core ($0 Unlimited Local) + Hosted Cloud Pro API',
     readOnlyFirewall: true,
     kvBound: Boolean(c.env.LICENSES_KV),
-    globalReplayGuardBound: Boolean(c.env.GLOBAL_CLAIMED_TX_KV)
+    globalReplayGuardBound: Boolean(c.env.GLOBAL_CLAIMED_TX_KV),
+    durableObjectLockBound: Boolean(c.env.TX_CLAIM_LOCK),
+    smartWalletSupport: ['EOA', 'ERC-1271', 'EIP-6492'],
+    cloudProEndpoints: [
+      '/api/cloud/blackout-calendar',
+      '/api/cloud/presets',
+      '/api/cloud/monte-carlo',
+      '/api/cloud/relay/alert'
+    ]
   });
 });
 
@@ -310,10 +307,25 @@ app.get('/api/config', (c) => {
     usdcContract: c.env.BASE_USDC_CONTRACT,
     payToEvmAddress: c.env.PAY_TO_EVM_ADDRESS,
     minConfirmations: Number(c.env.MIN_CONFIRMATIONS || '2'),
+    smartWalletSupport: ['EOA', 'ERC-1271', 'EIP-6492'],
     tiers: {
-      free: { priceUsd: '0', maxAccounts: 1, license: 'MIT Local Core' },
-      solo: { priceAtomic: c.env.SOLO_PRICE_USDC_ATOMIC || '29000000', priceUsd: '29.00', maxAccounts: 20 },
-      team: { priceAtomic: c.env.TEAM_PRICE_USDC_ATOMIC || '99000000', priceUsd: '99.00', maxAccounts: null }
+      free: {
+        priceUsd: '0',
+        maxAccounts: null,
+        license: 'MIT Local Core (Unlimited Local CLI, SQLite Journal & Web Dashboard)'
+      },
+      solo: {
+        priceAtomic: c.env.SOLO_PRICE_USDC_ATOMIC || '29000000',
+        priceUsd: '29.00',
+        maxAccounts: 20,
+        cloudQuota: 'Hosted Cloud Pro Solo API (25k Monte Carlo, CME Macro Blackouts, Canonical Presets, Relay Alerts)'
+      },
+      team: {
+        priceAtomic: c.env.TEAM_PRICE_USDC_ATOMIC || '99000000',
+        priceUsd: '99.00',
+        maxAccounts: null,
+        cloudQuota: 'Hosted Cloud Pro Team API (Up to 100-Account Portfolio Monte Carlo, Desk Templates & Relays)'
+      }
     },
     altTreasury: {
       solana: c.env.SOLANA_RECEIVE_ADDRESS,
@@ -323,13 +335,81 @@ app.get('/api/config', (c) => {
   });
 });
 
-app.post('/api/challenge', async (c) => {
-  let body: { txHash?: string; tier?: string };
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: 'INVALID_JSON' }, 400);
+app.get('/api/cloud/blackout-calendar', async (c) => {
+  const auth = await authenticateCloudProRequest(c.req.raw.headers, c.env);
+  if (auth.provided && !auth.authenticated) {
+    return c.json({ ok: false, error: auth.error, message: auth.message }, auth.status);
   }
+  return c.json(buildBlackoutCalendarResponse(auth));
+});
+
+app.get('/api/cloud/presets', async (c) => {
+  const auth = await authenticateCloudProRequest(c.req.raw.headers, c.env);
+  if (auth.provided && !auth.authenticated) {
+    return c.json({ ok: false, error: auth.error, message: auth.message }, auth.status);
+  }
+  return c.json(buildCloudPresetsResponse(auth));
+});
+
+app.post('/api/cloud/monte-carlo', async (c) => {
+  const auth = await authenticateCloudProRequest(c.req.raw.headers, c.env);
+  if (!auth.provided) {
+    return c.json(
+      {
+        ok: false,
+        error: 'PRO_AUTH_REQUIRED',
+        message: 'Provide Authorization: Bearer EVALSHIELD-PRO-v1.<payload>.<sig> for server-side Cloud Monte Carlo.'
+      },
+      401
+    );
+  }
+  if (!auth.authenticated) {
+    return c.json({ ok: false, error: auth.error, message: auth.message }, auth.status);
+  }
+
+  const parsed = await parseBoundedJsonBody(c.req.raw, MAX_JSON_BYTES);
+  if (!parsed.ok) {
+    return c.json({ ok: false, error: parsed.error, message: parsed.message }, parsed.status);
+  }
+
+  const sim = runServerMonteCarlo(parsed.data, auth.tier);
+  if (!sim.ok) {
+    return c.json({ ok: false, error: sim.error, message: sim.message }, 400);
+  }
+  return c.json(sim.data);
+});
+
+app.post('/api/cloud/relay/alert', async (c) => {
+  const auth = await authenticateCloudProRequest(c.req.raw.headers, c.env);
+  if (!auth.provided) {
+    return c.json(
+      {
+        ok: false,
+        error: 'PRO_AUTH_REQUIRED',
+        message: 'Provide Authorization: Bearer EVALSHIELD-PRO-v1.<payload>.<sig> for Cloud Alert Relay.'
+      },
+      401
+    );
+  }
+  if (!auth.authenticated) {
+    return c.json({ ok: false, error: auth.error, message: auth.message }, auth.status);
+  }
+
+  const parsed = await parseBoundedJsonBody(c.req.raw, MAX_JSON_BYTES);
+  if (!parsed.ok) {
+    return c.json({ ok: false, error: parsed.error, message: parsed.message }, parsed.status);
+  }
+
+  const out = await processCloudRelayAlert(parsed.data, auth.tier);
+  return c.json(out.body, out.status as 200 | 400 | 502);
+});
+
+app.post('/api/challenge', async (c) => {
+  const parsed = await parseBoundedJsonBody<{ txHash?: string; tier?: string }>(c.req.raw, MAX_JSON_BYTES);
+  if (!parsed.ok) {
+    return c.json({ error: parsed.error, message: parsed.message }, parsed.status);
+  }
+  const body = parsed.data;
 
   const txHash = (body.txHash ?? '').trim();
   const tier = parseTier(body.tier);
@@ -362,23 +442,28 @@ app.post('/api/verify', async (c) => {
     !c.env.LICENSE_SIGNING_PRIVATE_JWK ||
     !c.env.DOWNLOAD_HMAC_SECRET ||
     c.env.DOWNLOAD_HMAC_SECRET.length < 16 ||
-    !c.env.GLOBAL_CLAIMED_TX_KV
+    !c.env.GLOBAL_CLAIMED_TX_KV ||
+    !c.env.TX_CLAIM_LOCK
   ) {
     return c.json(
       {
         error: 'SERVER_MISCONFIGURED',
-        message: 'Missing LICENSE_SIGNING_PRIVATE_JWK, DOWNLOAD_HMAC_SECRET, or GLOBAL_CLAIMED_TX_KV.'
+        message: 'Missing LICENSE_SIGNING_PRIVATE_JWK, DOWNLOAD_HMAC_SECRET, GLOBAL_CLAIMED_TX_KV, or TX_CLAIM_LOCK.'
       },
       500
     );
   }
 
-  let body: { txHash?: string; nonce?: string; signature?: string; tier?: string };
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: 'INVALID_JSON' }, 400);
+  const parsed = await parseBoundedJsonBody<{
+    txHash?: string;
+    nonce?: string;
+    signature?: string;
+    tier?: string;
+  }>(c.req.raw, MAX_JSON_BYTES);
+  if (!parsed.ok) {
+    return c.json({ error: parsed.error, message: parsed.message }, parsed.status);
   }
+  const body = parsed.data;
 
   const txHash = (body.txHash ?? '').trim();
   const nonce = (body.nonce ?? '').trim();
@@ -386,7 +471,10 @@ app.post('/api/verify', async (c) => {
   const tier = parseTier(body.tier);
 
   if (!TX_HASH_RE.test(txHash) || !nonce || !SIG_RE.test(signature)) {
-    return c.json({ error: 'INVALID_REQUEST', message: 'Provide valid txHash, nonce, and EIP-191 signature.' }, 400);
+    return c.json(
+      { error: 'INVALID_REQUEST', message: 'Provide valid txHash, nonce, and EIP-191/ERC-1271/EIP-6492 signature.' },
+      400
+    );
   }
   if (!tier) {
     return c.json({ error: 'INVALID_TIER', message: 'Tier must be solo or team.' }, 400);
@@ -448,11 +536,12 @@ app.post('/api/verify', async (c) => {
   let paidAtomic = 0n;
   for (const [fromAddr, totalPaid] of payerTotals.entries()) {
     if (totalPaid < requiredAmount) continue;
-    const sigOk = await verifyMessage({
-      address: fromAddr as `0x${string}`,
+    const sigOk = await verifySmartWalletOrEoaSignature({
+      rpcUrls,
+      address: fromAddr,
       message: challenge.message,
-      signature: signature as `0x${string}`
-    }).catch(() => false);
+      signature
+    });
     if (sigOk) {
       matchedPayer = fromAddr;
       paidAtomic = totalPaid;
@@ -463,7 +552,10 @@ app.post('/api/verify', async (c) => {
   if (!matchedPayer) {
     await c.env.LICENSES_KV.delete(challengeKey);
     return c.json(
-      { error: 'PAYMENT_OR_SIGNATURE_INVALID', message: 'Transfer or EIP-191 signature verification failed.' },
+      {
+        error: 'PAYMENT_OR_SIGNATURE_INVALID',
+        message: 'Transfer or wallet signature (EIP-191 / ERC-1271 / EIP-6492) verification failed.'
+      },
       403
     );
   }
@@ -485,11 +577,42 @@ app.post('/api/verify', async (c) => {
     }
   }
 
+  // Acquire strongly-consistent Durable Object lock BEFORE issuing credentials or writing KV.
+  const doId = c.env.TX_CLAIM_LOCK.idFromName(txLower);
+  const doStub = c.env.TX_CLAIM_LOCK.get(doId);
+  const doRes = await doStub.fetch('https://do.internal/claim', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      scope: SCOPE_STOREFRONT,
+      txHash: txLower,
+      payer: matchedPayer,
+      tier,
+      paidAtomic: paidAtomic.toString()
+    })
+  });
+  const doJson = (await doRes.json()) as {
+    ok: boolean;
+    reclaimed?: boolean;
+    error?: string;
+    message?: string;
+  };
+  if (!doRes.ok || !doJson.ok) {
+    await c.env.LICENSES_KV.delete(challengeKey);
+    return c.json(
+      {
+        error: doJson.error || 'TX_ALREADY_CLAIMED',
+        message: doJson.message || 'Transaction claim lock denied.'
+      },
+      403
+    );
+  }
+
   await c.env.LICENSES_KV.delete(challengeKey);
 
   const claimedKey = `claimed_tx:${txLower}`;
   const existingRaw = await c.env.LICENSES_KV.get(claimedKey);
-  let reclaimed = false;
+  let reclaimed = Boolean(doJson.reclaimed);
   if (existingRaw) {
     const existing = JSON.parse(existingRaw) as { payer?: string; tier?: Tier };
     if (existing.payer?.toLowerCase() === matchedPayer.toLowerCase() && existing.tier === tier) {
@@ -552,6 +675,7 @@ app.post('/api/verify', async (c) => {
     txHash: txLower,
     paidAtomic: paidAtomic.toString(),
     licenseToken,
+    bearerHeader: `Authorization: Bearer ${licenseToken}`,
     downloadToken,
     downloadUrl: `/api/download?token=${encodeURIComponent(downloadToken)}`,
     activationCommand: `node apps/cli/dist/src/cli.js activate --token "${licenseToken}"`
@@ -610,12 +734,12 @@ app.get('/api/download', async (c) => {
     txHash: grant.txHash,
     issuedAt: grant.createdAt,
     licenseToken: grant.licenseToken,
-    propFirmPresets: {
-      topstep50kEod: { balance: 50000, maxDrawdown: 2000, mode: 'EOD_TRAILING', dll: 1000, consistencyCap: 0.5 },
-      apex50kIntraday: { balance: 50000, maxDrawdown: 2500, mode: 'INTRADAY_TRAILING', safetyLockOffset: 100, consistencyCap: 0.3 },
-      mffu50kRapid: { balance: 50000, maxDrawdown: 2000, mode: 'EOD_TRAILING', consistencyCap: 0.4 },
-      tradeify50kStraight: { balance: 50000, maxDrawdown: 2000, mode: 'STATIC', consistencyCap: 0.3 }
-    }
+    cloudProEndpoints: [
+      'GET /api/cloud/blackout-calendar',
+      'GET /api/cloud/presets',
+      'POST /api/cloud/monte-carlo',
+      'POST /api/cloud/relay/alert'
+    ]
   };
 
   return new Response(JSON.stringify(bundle, null, 2), {

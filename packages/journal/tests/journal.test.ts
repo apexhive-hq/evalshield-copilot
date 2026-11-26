@@ -107,7 +107,7 @@ test('SQLite WAL journal deduplicates CSV re-imports, tracks tilt leakage, and s
   db.close();
 });
 
-test('HTTP server enforces free account limit, Ed25519 unlock, HMAC webhook, and 413 cap', async () => {
+test('HTTP server unlocks local MIT accounts, enforces strict CORS, validates Ed25519, HMAC webhook, and 413 cap', async () => {
   const { publicKey, privateKey } = generateKeyPairSync('ed25519');
   const spkiB64 = publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
   const webhookSecret = 'test-local-webhook-secret-32bytes';
@@ -117,7 +117,8 @@ test('HTTP server enforces free account limit, Ed25519 unlock, HMAC webhook, and
   const server = createEvalShieldHttpServer({
     db,
     publicKeySpkiB64: spkiB64,
-    webhookSecret
+    webhookSecret,
+    allowedOrigins: ['https://trusted.evalshield.example']
   });
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
@@ -125,20 +126,42 @@ test('HTTP server enforces free account limit, Ed25519 unlock, HMAC webhook, and
   const baseUrl = `http://127.0.0.1:${port}`;
 
   try {
-    const health = await fetch(`${baseUrl}/api/health`);
+    // CORS: loopback Origin reflected with Vary: Origin (never wildcard *); disallowed write rejected with 403 ORIGIN_NOT_ALLOWED
+    const health = await fetch(`${baseUrl}/api/health`, {
+      headers: { origin: 'http://127.0.0.1:4200' }
+    });
     assert.equal(health.status, 200);
+    assert.equal(health.headers.get('access-control-allow-origin'), 'http://127.0.0.1:4200');
+    assert.equal(health.headers.get('vary'), 'Origin');
     const healthJson = (await health.json()) as { orderRoutingEnabled: boolean };
     assert.equal(healthJson.orderRoutingEnabled, false);
 
-    // 2nd account blocked on free MIT tier (402)
-    const blocked = await fetch(`${baseUrl}/api/accounts`, {
+    const corsDenied = await fetch(`${baseUrl}/api/accounts`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: 'Second Eval', presetId: 'apex_50k_eod' })
+      headers: { 'content-type': 'application/json', origin: 'https://evil.example' },
+      body: JSON.stringify({ name: 'Cross-Origin Block', presetId: 'apex_50k_eod' })
     });
-    assert.equal(blocked.status, 402);
+    assert.equal(corsDenied.status, 403);
+    assert.equal(corsDenied.headers.get('access-control-allow-origin'), null);
+    assert.equal(corsDenied.headers.get('vary'), 'Origin');
+    assert.equal(((await corsDenied.json()) as { error: string }).error, 'ORIGIN_NOT_ALLOWED');
 
-    // Activate valid Ed25519 Solo token -> 2nd account allowed!
+    // Explicit allowlist origin permitted
+    const createdLocal = await fetch(`${baseUrl}/api/accounts`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: 'https://trusted.evalshield.example'
+      },
+      body: JSON.stringify({ name: 'Second Local MIT Eval', presetId: 'apex_50k_eod' })
+    });
+    assert.equal(createdLocal.status, 201);
+    assert.equal(
+      createdLocal.headers.get('access-control-allow-origin'),
+      'https://trusted.evalshield.example'
+    );
+
+    // Activate valid Ed25519 Solo token -> tier transitions to solo cleanly
     const payload = {
       v: 1,
       product: 'evalshield-copilot',
@@ -159,13 +182,9 @@ test('HTTP server enforces free account limit, Ed25519 unlock, HMAC webhook, and
       body: JSON.stringify({ token })
     });
     assert.equal(act.status, 200);
-
-    const created = await fetch(`${baseUrl}/api/accounts`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: 'Second Eval', presetId: 'apex_50k_eod' })
-    });
-    assert.equal(created.status, 201);
+    const actJson = (await act.json()) as { license: { valid: boolean; tier: string } };
+    assert.equal(actJson.license.valid, true);
+    assert.equal(actJson.license.tier, 'solo');
 
     // Webhook rejects bad HMAC (401)
     const whBody = JSON.stringify({

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,6 +10,11 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(WEB_DIR, '..', '..');
+const HQ_ROOT = path.resolve(REPO_ROOT, '..', '..');
+const CACHED_PLAYWRIGHT_DIR = path.join(HQ_ROOT, 'departments', 'infra', '.caches', 'ms-playwright');
+if (!process.env.PLAYWRIGHT_BROWSERS_PATH && existsSync(CACHED_PLAYWRIGHT_DIR)) {
+  process.env.PLAYWRIGHT_BROWSERS_PATH = CACHED_PLAYWRIGHT_DIR;
+}
 const require = createRequire(import.meta.url);
 const { chromium } = require(path.join(REPO_ROOT, 'storefront', 'node_modules', 'playwright'));
 
@@ -67,20 +73,12 @@ test('apps/web static dashboard integrates live SQLite journal, risk shield, CSV
       assert.equal(await page.locator('#mc-hist-svg rect').count(), 5);
 
       if (vp.tag === 'desktop') {
-        // Server enforces 402 ACCOUNT_LIMIT_REACHED on >1 account without Pro token
-        const limitRes = await fetch(`${baseUrl}/api/accounts`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ name: 'Blocked Eval #2', presetId: 'apex_50k_intraday' }),
-        });
-        assert.equal(limitRes.status, 402);
-
-        // UI also blocks 2nd account cleanly on free tier without noisy console errors
+        // MIT Local Core allows unlimited local accounts & checks ($0 forever)
         await page.fill('#new-acc-name', 'Apex Eval #2');
         await page.click('#create-acc-btn');
-        await page.waitForSelector('#account-status.error:not([hidden])');
+        await page.waitForSelector('#account-status.ok:not([hidden])');
 
-        // Activate Solo license -> unlock 2nd account
+        // Activate Solo Cloud Pro token -> updates license badge cleanly
         const token = signEd25519Token(privateKey, {
           v: 1,
           product: 'evalshield-copilot',
@@ -95,9 +93,6 @@ test('apps/web static dashboard integrates live SQLite journal, risk shield, CSV
         await page.click('#activate-license-btn');
         await page.waitForSelector('#license-status.ok:not([hidden])');
         assert.ok((await page.locator('#badge-license').innerText()).includes('Pro Solo'));
-
-        await page.click('#create-acc-btn');
-        await page.waitForSelector('#account-status.ok:not([hidden])');
 
         // Evaluate risk check + CSV FIFO import
         await page.selectOption('#risk-symbol', 'MNQ');

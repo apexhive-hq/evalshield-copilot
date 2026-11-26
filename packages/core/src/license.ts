@@ -24,13 +24,15 @@ function toPublicKeyObject(spkiB64: string) {
 }
 
 export function getMaxAllowedAccounts(verification: LicenseVerificationResult): number | null {
+  // Local MIT Core accounts & checks are unlocked generously ($0 unlimited locally);
+  // Pro Solo/Team tiers gate non-bypassable Hosted Cloud Pro API access.
   if (!verification.valid || verification.tier === 'free') {
-    return 1;
+    return null;
   }
   if (verification.tier === 'team') {
     return verification.maxAccounts ?? null;
   }
-  return verification.maxAccounts ?? 20;
+  return verification.maxAccounts ?? null;
 }
 
 export function verifyEvalShieldLicenseToken(
@@ -42,7 +44,7 @@ export function verifyEvalShieldLicenseToken(
     return {
       valid: false,
       tier: 'free',
-      maxAccounts: 1,
+      maxAccounts: null,
       reason: `Invalid license prefix (expected ${TOKEN_PREFIX}).`
     };
   }
@@ -52,7 +54,7 @@ export function verifyEvalShieldLicenseToken(
     return {
       valid: false,
       tier: 'free',
-      maxAccounts: 1,
+      maxAccounts: null,
       reason: 'Malformed license token structure.'
     };
   }
@@ -73,7 +75,7 @@ export function verifyEvalShieldLicenseToken(
     return {
       valid: false,
       tier: 'free',
-      maxAccounts: 1,
+      maxAccounts: null,
       reason: `Ed25519 verification error: ${err instanceof Error ? err.message : String(err)}`
     };
   }
@@ -82,7 +84,7 @@ export function verifyEvalShieldLicenseToken(
     return {
       valid: false,
       tier: 'free',
-      maxAccounts: 1,
+      maxAccounts: null,
       reason: 'Invalid Ed25519 signature.'
     };
   }
@@ -94,7 +96,7 @@ export function verifyEvalShieldLicenseToken(
     return {
       valid: false,
       tier: 'free',
-      maxAccounts: 1,
+      maxAccounts: null,
       reason: 'Malformed JSON payload in license token.'
     };
   }
@@ -104,7 +106,7 @@ export function verifyEvalShieldLicenseToken(
     return {
       valid: false,
       tier: 'free',
-      maxAccounts: 1,
+      maxAccounts: null,
       reason: 'License payload failed schema validation.'
     };
   }
@@ -125,7 +127,7 @@ export function verifyEvalShieldLicenseToken(
     return {
       valid: false,
       tier: 'free',
-      maxAccounts: 1,
+      maxAccounts: null,
       reason: 'License token has expired.'
     };
   }

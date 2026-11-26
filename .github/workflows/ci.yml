@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  workspace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+      - name: Install, Typecheck & Test Monorepo (core, journal, cli)
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm run typecheck
+          pnpm test
+
+  storefront-and-web:
+    needs: workspace
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+      - name: Install & Build Monorepo (for apps/web static check)
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm run build
+      - name: Install, Typecheck & Test Storefront + Cloud Pro E2E
+        working-directory: storefront
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm exec playwright install chromium
+          pnpm run typecheck
+          pnpm test
+      - name: Test Local Web Dashboard Playwright E2E
+        working-directory: apps/web
+        run: pnpm test

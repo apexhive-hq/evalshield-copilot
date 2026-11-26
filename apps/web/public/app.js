@@ -41,15 +41,15 @@
 
   function renderLicenseBadge() {
     const badge = $('badge-license');
-    const lic = state.license || { tier: 'free', maxAccounts: 1 };
+    const lic = state.license || { tier: 'free', maxAccounts: null };
     if (lic.tier === 'team') {
-      badge.textContent = 'Pro Team (Unlimited Accounts)';
+      badge.textContent = 'Pro Team (Cloud API)';
       badge.className = 'pill';
     } else if (lic.tier === 'solo') {
-      badge.textContent = `Pro Solo (${lic.maxAccounts || 20} Accounts)`;
+      badge.textContent = 'Pro Solo (Cloud API)';
       badge.className = 'pill';
     } else {
-      badge.textContent = 'MIT Free (1 Account)';
+      badge.textContent = 'MIT Free (Local Core)';
       badge.className = 'pill warn';
     }
   }
@@ -280,15 +280,6 @@
 
   $('create-acc-btn').addEventListener('click', async () => {
     const statusEl = $('account-status');
-    const maxAcc = state.license && state.license.maxAccounts;
-    if (typeof maxAcc === 'number' && state.accounts.length >= maxAcc) {
-      showBox(
-        statusEl,
-        `Active ${state.license.tier} license allows ${maxAcc} account(s). Activate a Pro Solo (29 USDC) or Team (99 USDC) token below to add more.`,
-        'error'
-      );
-      return;
-    }
     try {
       const name = $('new-acc-name').value.trim() || 'Prop Eval Account';
       const presetId = $('new-acc-preset').value;
