@@ -218,6 +218,8 @@
       $('activation-cmd').textContent = out.activationCommand;
       $('license-token-text').textContent = out.licenseToken;
       $('download-bundle-link').href = out.downloadUrl;
+      stateCert = { tier: out.tier, txHash: out.txHash, payer: out.payer, token: out.licenseToken };
+      rebuildCommercialCert();
       resultEl.hidden = false;
     } catch (err) {
       showBox(statusEl, err?.message || String(err), 'error');
@@ -306,6 +308,28 @@
   $('cloud-blackouts-btn')?.addEventListener('click', () => inspectCloudEndpoint('/api/cloud/blackout-calendar'));
   $('cloud-presets-btn')?.addEventListener('click', () => inspectCloudEndpoint('/api/cloud/presets'));
   $('cloud-brief-btn')?.addEventListener('click', () => inspectCloudEndpoint('/api/cloud/brief?coins=BTC,ETH,SOL'));
+
+  let stateCert = null;
+
+  function escHtml(s) {
+    return String(s || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function rebuildCommercialCert() {
+    const link = $('cert-download-btn');
+    if (!link || !stateCert) return;
+    const org = (($('cert-org-input')?.value || '').trim() || 'Licensed Commercial Trading Desk');
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>EvalShield Commercial License Certificate</title><style>body{font-family:system-ui,sans-serif;padding:40px;color:#0f172a;max-width:760px;margin:0 auto}h1{margin-bottom:4px}.box{border:2px solid #0f172a;padding:24px;border-radius:10px}table{width:100%;border-collapse:collapse;margin-top:16px}td{padding:8px 0;border-bottom:1px solid #cbd5e1}code{word-break:break-all;font-size:12px}</style></head><body><div class="box"><h1>ApexHive Labs — Commercial License Certificate</h1><p>Issued under ApexHive Dual Source-Available License (v3.0)</p><table><tr><td><strong>Organization / Desk</strong></td><td>${escHtml(org)}</td></tr><tr><td><strong>Product &amp; Tier</strong></td><td>evalshield-copilot (${escHtml(String(stateCert.tier).toUpperCase())})</td></tr><tr><td><strong>Seat Allocation</strong></td><td>${stateCert.tier === 'enterprise' ? '100+ Unlimited Organization Seats' : '2-99 Commercial Team Seats'}</td></tr><tr><td><strong>Payment Rail</strong></td><td>Base Mainnet USDC (0x2105)</td></tr><tr><td><strong>Payer Wallet</strong></td><td><code>${escHtml(stateCert.payer)}</code></td></tr><tr><td><strong>Settlement TxHash</strong></td><td><code>${escHtml(stateCert.txHash)}</code></td></tr><tr><td><strong>Signed Ed25519 Token</strong></td><td><code>${escHtml(stateCert.token)}</code></td></tr></table><p style="margin-top:16px;font-size:12px;color:#475569">Verify offline using Ed25519 SPKI key MCowBQYDK2VwAyEArz/+yUqh9Alo5B2DPD23q2vbvAuPPL5m1zqtHg66cA0= · Support: apexhive.hq@proton.me</p></div></body></html>`;
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    link.href = URL.createObjectURL(blob);
+  }
+
+  $('cert-org-input')?.addEventListener('input', rebuildCommercialCert);
 
   recomputeShield();
   runMonteCarlo();

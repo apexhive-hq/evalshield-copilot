@@ -944,29 +944,57 @@ export async function buildPublicCloudBrief(
   }
 
   const polymarket: Array<Record<string, unknown>> = [];
-  for (const slug of slugs) {
+  if (slugs.length > 0) {
+    for (const slug of slugs) {
+      try {
+        const pRes = await fetchFn(
+          `https://gamma-api.polymarket.com/markets?slug=${encodeURIComponent(slug)}`,
+          { headers: { accept: 'application/json', 'user-agent': 'EvalShield-Cloud/3.0.1' }, signal: AbortSignal.timeout(3500) }
+        );
+        if (pRes.ok) {
+          const rows = (await pRes.json()) as Array<Record<string, unknown>>;
+          const m = rows?.[0];
+          if (m) {
+            const rawP = typeof m.outcomePrices === 'string' ? JSON.parse(m.outcomePrices) : m.outcomePrices;
+            const yesPct = Array.isArray(rawP) && rawP[0] !== undefined ? Math.round(Number(rawP[0]) * 1000) / 10 : null;
+            polymarket.push({
+              slug,
+              question: String(m.question ?? slug),
+              yesProbabilityPct: yesPct,
+              closed: Boolean(m.closed),
+              endDate: m.endDate ?? null
+            });
+          }
+        }
+      } catch (err) {
+        warnings.push(`Polymarket "${slug}" error: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  } else {
     try {
       const pRes = await fetchFn(
-        `https://gamma-api.polymarket.com/markets?slug=${encodeURIComponent(slug)}`,
-        { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(3500) }
+        'https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=3&order=volume24hr&ascending=false',
+        { headers: { accept: 'application/json', 'user-agent': 'EvalShield-Cloud/3.0.1' }, signal: AbortSignal.timeout(3500) }
       );
       if (pRes.ok) {
         const rows = (await pRes.json()) as Array<Record<string, unknown>>;
-        const m = rows?.[0];
-        if (m) {
+        for (const m of (Array.isArray(rows) ? rows : []).slice(0, 3)) {
           const rawP = typeof m.outcomePrices === 'string' ? JSON.parse(m.outcomePrices) : m.outcomePrices;
           const yesPct = Array.isArray(rawP) && rawP[0] !== undefined ? Math.round(Number(rawP[0]) * 1000) / 10 : null;
           polymarket.push({
-            slug,
-            question: String(m.question ?? slug),
+            slug: String(m.slug ?? m.id ?? 'market'),
+            question: String(m.question ?? m.slug ?? 'Active Market'),
             yesProbabilityPct: yesPct,
+            volume24hUsd: Number.isFinite(Number(m.volume24hr)) ? Math.round(Number(m.volume24hr)) : null,
             closed: Boolean(m.closed),
             endDate: m.endDate ?? null
           });
         }
+      } else {
+        warnings.push(`Polymarket discovery HTTP ${pRes.status}`);
       }
     } catch (err) {
-      warnings.push(`Polymarket "${slug}" error: ${err instanceof Error ? err.message : String(err)}`);
+      warnings.push(`Polymarket discovery error: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -985,6 +1013,16 @@ export async function buildPublicCloudBrief(
   };
 }
 
+const ALLOWED_PORTFOLIO_KEYS = new Set([
+  'accountId',
+  'accountName',
+  'symbol',
+  'side',
+  'qty',
+  'riskUsd',
+  'antiHedgingBanned'
+]);
+
 export function evaluatePublicPortfolioGuard(rawBody: Record<string, unknown>): {
   ok: true;
   safeToProceed: boolean;
@@ -992,8 +1030,8 @@ export function evaluatePublicPortfolioGuard(rawBody: Record<string, unknown>): 
   alerts: Array<{ code: string; severity: string; message: string; accounts: string[] }>;
 } | { ok: false; error: string; message: string } {
   const rawPositions = rawBody.positions;
-  if (!Array.isArray(rawPositions) || rawPositions.length > 100) {
-    return { ok: false, error: 'INVALID_PARAMS', message: 'positions must be an array of <= 100 items.' };
+  if (!Array.isArray(rawPositions) || rawPositions.length === 0 || rawPositions.length > 100) {
+    return { ok: false, error: 'INVALID_PARAMS', message: 'positions must be a non-empty array of 1..100 position objects.' };
   }
   const bucketOf = (sym: string) => {
     const s = sym.toUpperCase().replace(/[^A-Z0-9-]/g, '');
@@ -1008,14 +1046,33 @@ export function evaluatePublicPortfolioGuard(rawBody: Record<string, unknown>): 
   const dirs = new Map<string, { longs: Set<string>; shorts: Set<string>; accs: Set<string> }>();
   const alerts: Array<{ code: string; severity: string; message: string; accounts: string[] }> = [];
 
-  for (const item of rawPositions) {
-    if (!item || typeof item !== 'object') continue;
+  for (let i = 0; i < rawPositions.length; i += 1) {
+    const item = rawPositions[i];
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return { ok: false, error: 'INVALID_PARAMS', message: `positions[${i}] must be a JSON object.` };
+    }
     const p = item as Record<string, unknown>;
-    const acc = String(p.accountId ?? '').trim();
-    const sym = String(p.symbol ?? '').trim().toUpperCase();
-    const side = String(p.side ?? '').trim().toUpperCase();
-    const qty = Number(p.qty ?? 0);
-    if (!acc || !sym || (side !== 'LONG' && side !== 'SHORT') || !Number.isFinite(qty) || qty <= 0) continue;
+    for (const k of Object.keys(p)) {
+      if (!ALLOWED_PORTFOLIO_KEYS.has(k)) {
+        return {
+          ok: false,
+          error: 'INVALID_PARAMS',
+          message: `positions[${i}] contains unsupported field "${k}". Expected: accountId, symbol, side (LONG|SHORT), qty.`
+        };
+      }
+    }
+    const acc = typeof p.accountId === 'string' ? p.accountId.trim() : '';
+    const sym = typeof p.symbol === 'string' ? p.symbol.trim().toUpperCase() : '';
+    const sideRaw = typeof p.side === 'string' ? p.side.trim().toUpperCase() : '';
+    const qty = typeof p.qty === 'number' ? p.qty : Number.NaN;
+    if (!acc || !sym || (sideRaw !== 'LONG' && sideRaw !== 'SHORT') || !Number.isFinite(qty) || qty <= 0) {
+      return {
+        ok: false,
+        error: 'INVALID_PARAMS',
+        message: `positions[${i}] requires valid non-empty accountId, symbol, side ('LONG' | 'SHORT'), and positive finite qty.`
+      };
+    }
+    const side = sideRaw;
     const b = bucketOf(sym);
     const lots = scaleOf(sym, qty);
     const d = dirs.get(b) ?? { longs: new Set<string>(), shorts: new Set<string>(), accs: new Set<string>() };

@@ -1,8 +1,8 @@
 {
   "name": "@evalshield/web",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Local read-only browser dashboard and static UI assets for evalshield-copilot (WinRAR $0 Solo full 300-pt edition).",
-  "license": "MIT",
+  "license": "SEE LICENSE IN ../../LICENSE",
   "private": true,
   "type": "module",
   "devDependencies": {

@@ -282,7 +282,7 @@ app.get('/api/health', (c) => {
   return c.json({
     ok: true,
     service: 'evalshield-copilot',
-    version: '3.0.0',
+    version: '3.0.1',
     licenseModel: 'WinRAR Dual Source-Available (Solo 0 USDC Full 300-pt + Early-Bird Commercial Team 99 USDC / Enterprise 499 USDC)',
     readOnlyFirewall: true,
     kvBound: Boolean(c.env.LICENSES_KV),
@@ -304,7 +304,7 @@ app.get('/api/config', (c) => {
   return c.json({
     brand: c.env.BRAND_NAME || 'ApexHive Labs',
     productId: c.env.PRODUCT_ID || 'evalshield-copilot',
-    version: '3.0.0',
+    version: '3.0.1',
     tokenPrefix: c.env.TOKEN_PREFIX || 'EVALSHIELD-PRO-v1.',
     licensePublicKeySpkiB64: c.env.LICENSE_SIGNING_PUBLIC_SPKI_B64 || null,
     supportEmail: 'apexhive.hq@proton.me',

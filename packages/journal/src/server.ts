@@ -316,19 +316,26 @@ const TestConnectorSchema = z.object({
   keywords: z.array(z.string().max(40)).max(12).optional()
 });
 
-const PortfolioGuardSchema = z.object({
-  positions: z
-    .array(
-      z.object({
-        accountId: z.string().min(1),
-        symbol: z.string().min(1).max(32),
-        side: z.enum(['LONG', 'SHORT']),
-        qty: z.number().positive(),
-        antiHedgingBanned: z.boolean().optional()
-      })
-    )
-    .max(100)
-});
+const PortfolioGuardSchema = z
+  .object({
+    positions: z
+      .array(
+        z
+          .object({
+            accountId: z.string().min(1),
+            accountName: z.string().min(1).optional(),
+            symbol: z.string().min(1).max(32),
+            side: z.enum(['LONG', 'SHORT']),
+            qty: z.number().positive(),
+            riskUsd: z.number().positive().optional(),
+            antiHedgingBanned: z.boolean().optional()
+          })
+          .strict()
+      )
+      .min(1)
+      .max(100)
+  })
+  .strict();
 
 export function createEvalShieldHttpServer(options: ServerOptions): http.Server {
   const { db } = options;

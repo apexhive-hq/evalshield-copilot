@@ -1,8 +1,8 @@
 {
   "name": "@evalshield/cli",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Local CLI and dashboard host for EvalShield Co-Pilot (WinRAR $0 Solo 300-pt cross-market prop risk shield, pre-trade thesis audit, 15s brief & SQLite journal).",
-  "license": "MIT",
+  "license": "SEE LICENSE IN ../../LICENSE",
   "type": "module",
   "bin": {
     "evalshield": "./dist/src/cli.js"

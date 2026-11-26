@@ -493,6 +493,21 @@ test('Open 300-pt Sandbox opens analytical APIs at $0 while guarding live outbou
   assert.equal(portJson.safeToProceed, false);
   assert.ok(portJson.alerts.some((a) => a.code === 'CROSS_ACCOUNT_ANTI_HEDGE_VIOLATION'));
 
+  // 3b. Portfolio guard MUST Fail-Closed (400 INVALID_PARAMS) on misspelled/missing position fields or empty array
+  for (const badBody of [
+    { positions: [] },
+    { positions: [{ accountId: 'acc1', symbol: 'ES', direction: 'LONG', qty: 1 }] },
+    { positions: [{ accountId: 'acc1', symbol: 'ES', side: 'LONG' }] }
+  ]) {
+    const badRes = await app.request(
+      'https://evalshield.test/api/cloud/portfolio-guard',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(badBody) },
+      env
+    );
+    assert.equal(badRes.status, 400);
+    assert.equal((await badRes.json()).error, 'INVALID_PARAMS');
+  }
+
   const origFetch = globalThis.fetch;
   globalThis.fetch = async (url) => {
     const u = String(url);
@@ -503,7 +518,7 @@ test('Open 300-pt Sandbox opens analytical APIs at $0 while guarding live outbou
       ]);
     }
     if (u.includes('gamma-api.polymarket.com')) {
-      return Response.json([{ question: 'Fed cut?', outcomePrices: '["0.75","0.25"]', closed: false }]);
+      return Response.json([{ slug: 'fed-cut', question: 'Fed cut?', outcomePrices: '["0.75","0.25"]', volume24hr: 500000, closed: false }]);
     }
     return origFetch(url);
   };
@@ -514,6 +529,11 @@ test('Open 300-pt Sandbox opens analytical APIs at $0 while guarding live outbou
     assert.equal(briefJson.openAccess, true);
     assert.equal(briefJson.hyperliquid[0].extremeFundingAlert, true);
     assert.equal(briefJson.polymarket[0].yesProbabilityPct, 75);
+
+    const briefDefaultJson = await (
+      await app.request('https://evalshield.test/api/cloud/brief?coins=BTC', {}, env)
+    ).json();
+    assert.ok(briefDefaultJson.polymarket.length >= 1);
   } finally {
     globalThis.fetch = origFetch;
   }

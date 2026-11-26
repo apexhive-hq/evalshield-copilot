@@ -1,8 +1,8 @@
 {
   "name": "@evalshield/core",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Deterministic prop-firm drawdown, cross-asset (Futures/Gold/Crypto Perps/FX), portfolio anti-hedge guard, open BYO feed engine, and Ed25519 license verification kernel.",
-  "license": "MIT",
+  "license": "SEE LICENSE IN ../../LICENSE",
   "type": "module",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",

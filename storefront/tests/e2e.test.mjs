@@ -445,6 +445,13 @@ test('End-to-end evalshield-copilot v3.0 Wrangler DO lock + ERC-1271 + Open 300-
     assert.equal(portLive.status, 200);
     assert.equal((await portLive.json()).safeToProceed, false);
 
+    const portBad = await fetch(`${baseUrl}/api/cloud/portfolio-guard`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ positions: [{ accountId: 'accA', symbol: 'ES', sides: 'LONG', qty: 1 }] })
+    });
+    assert.equal(portBad.status, 400);
+
     const liveRelayUnauth = await fetch(`${baseUrl}/api/cloud/relay/alert`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
