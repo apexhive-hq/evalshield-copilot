@@ -1,6 +1,6 @@
 {
   "name": "@evalshield/journal",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "description": "Local node:sqlite WAL trade journal, pre-trade thesis audits, BYO SSRF-safe connectors, FIFO matcher, HMAC read-only webhook sink, and localhost dashboard API server.",
   "license": "SEE LICENSE IN ../../LICENSE",
   "type": "module",

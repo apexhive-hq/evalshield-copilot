@@ -73,7 +73,7 @@ test('apps/web static dashboard integrates live SQLite journal, risk shield, CSV
       assert.equal(await page.locator('#mc-hist-svg rect').count(), 5);
 
       if (vp.tag === 'desktop') {
-        // MIT Local Core allows unlimited local accounts & checks ($0 forever)
+        // Solo-Free Local Core allows unlimited local accounts & checks ($0 forever)
         await page.fill('#new-acc-name', 'Apex Eval #2');
         await page.click('#create-acc-btn');
         await page.waitForSelector('#account-status.ok:not([hidden])');

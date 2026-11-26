@@ -1,8 +1,8 @@
-# evalshield-copilot (v3.0.0)
+# evalshield-copilot (v3.0.2)
 
 **Full-Open Cross-Market Prop-Firm Risk Shield, Multi-Account Anti-Hedge Guard, Pre-Trade Thesis Journal & 1-Click Self-Host BYO Cloud Kit** (`0 USDC` Solo Forever · Strictly Read-Only / Human-in-the-Loop).
 
-`evalshield-copilot` uses the **WinRAR Dual Source-Available Model**:
+`evalshield-copilot` uses the **ApexHive Dual Source-Available License (Solo-Free / Commercial Seat Model)**:
 - **Single Traders (`Solo — 1 person`)** get **100% of the 300-point engine free forever (`0 USDC`)** — zero HWID locks, zero 24h trial countdowns, zero feature paywalls, plus a `$0` 1-click Cloudflare self-host Cron template (`deploy/cloudflare-byo/`).
 - **Teams & Organizations (`2+` seats)** purchase an official commercial Ed25519 certificate verified on Base Mainnet USDC (`Team 2–99 seats: Founder Early-Bird 99 USDC` · `Enterprise 100+ seats: Founder Early-Bird 499 USDC`).
 
@@ -10,7 +10,7 @@
 
 ---
 
-## Architecture (v3.0.0 — Cross-Market 300-Point Engine)
+## Architecture (v3.0.2 — Cross-Market 300-Point Engine)
 
 ```text
   Broker CSV Exports (Tradovate / NT8 / Rithmic / TradingView) + Pre-Trade Thesis Audits
@@ -24,7 +24,7 @@
                               │
                               ▼
   ┌──────────────────────────────────────────────────────────┐
-  │ packages/core (@evalshield/core v3.0.0)                  │
+  │ packages/core (@evalshield/core v3.0.2)                  │
   │ • Prop Presets: Topstep, Apex, MFFU, FTMO (1&2), Tradeify│
   │ • Assets: ES/MES/NQ/MNQ/GC/MGC/CL/MCL + XAUUSD/EURUSD +  │
   │           BTC-PERP / ETH-PERP / SOL-PERP + Custom Specs  │
@@ -52,7 +52,7 @@
 
 ---
 
-## Licensing (WinRAR Dual Model — Solo $0 · Early-Bird Commercial)
+## Licensing (ApexHive Dual License — Solo $0 · Early-Bird Commercial)
 
 | Tier | Eligibility | Price (One-Time Base USDC) | Scope |
 | --- | --- | --- | --- |

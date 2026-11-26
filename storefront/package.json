@@ -1,6 +1,6 @@
 {
   "name": "@apexhive-labs/evalshield-copilot-store",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "license": "SEE LICENSE IN ../LICENSE",
   "description": "Public 300-pt Sandbox (25k Monte Carlo, Gamma/Hyperliquid Brief, Prop Presets, Portfolio Guard) + Base USDC ERC-1271/Ed25519 Team (99 USDC) & Enterprise (499 USDC) License Issuer for evalshield-copilot.",
   "private": true,

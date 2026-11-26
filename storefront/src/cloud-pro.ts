@@ -254,56 +254,105 @@ export async function authenticateCloudProRequest(
   };
 }
 
-const CME_BLACKOUT_EVENTS = [
-  {
-    id: 'us-cpi-dec-2026',
-    name: 'US CPI & Core CPI Release (BLS)',
-    category: 'INFLATION',
-    impact: 'HIGH',
-    scheduledUtc: '2026-12-10T13:30:00Z',
-    bufferMinutesBefore: 15,
-    bufferMinutesAfter: 15,
-    sizeMultiplierDuringWindow: 0,
-    affectedContracts: ['ES', 'MES', 'NQ', 'MNQ', 'GC', 'MGC'],
-    rationale: 'Topstep/Apex slippage protection during Tier-1 BLS inflation prints.'
-  },
-  {
-    id: 'fomc-rate-dec-2026',
-    name: 'FOMC Rate Decision & Press Conference (Federal Reserve)',
-    category: 'CENTRAL_BANK',
-    impact: 'EXTREME',
-    scheduledUtc: '2026-12-16T19:00:00Z',
-    bufferMinutesBefore: 20,
-    bufferMinutesAfter: 35,
-    sizeMultiplierDuringWindow: 0,
-    affectedContracts: ['ES', 'MES', 'NQ', 'MNQ', 'GC', 'MGC', 'CL', 'MCL'],
-    rationale: 'FOMC dot-plot + Powell Q&A regularly triggers multi-handle spread widening.'
-  },
-  {
-    id: 'us-pce-dec-2026',
-    name: 'US Core PCE Price Index (BEA)',
-    category: 'INFLATION',
-    impact: 'HIGH',
-    scheduledUtc: '2026-12-23T13:30:00Z',
-    bufferMinutesBefore: 10,
-    bufferMinutesAfter: 15,
-    sizeMultiplierDuringWindow: 0.5,
-    affectedContracts: ['ES', 'MES', 'NQ', 'MNQ', 'GC', 'MGC'],
-    rationale: 'Fed-preferred inflation gauge ahead of holiday liquidity thinning.'
-  },
-  {
-    id: 'us-nfp-jan-2027',
-    name: 'US Non-Farm Payrolls & Unemployment Rate (BLS)',
-    category: 'LABOR',
-    impact: 'HIGH',
-    scheduledUtc: '2027-01-08T13:30:00Z',
-    bufferMinutesBefore: 15,
-    bufferMinutesAfter: 15,
-    sizeMultiplierDuringWindow: 0,
-    affectedContracts: ['ES', 'MES', 'NQ', 'MNQ', 'GC', 'MGC'],
-    rationale: 'High-slippage 08:30 ET release; enforces flat or micro-only caution.'
-  },
-  {
+function isUsEdtMonth(monthIndexZeroBased: number): boolean {
+  // Approximate US DST window (March..October) for 08:30 ET (12:30 UTC) vs EST 08:30 ET (13:30 UTC)
+  return monthIndexZeroBased >= 2 && monthIndexZeroBased <= 9;
+}
+
+function nthWeekdayOfMonthUtc(year: number, monthIndex: number, targetDow: number, nth: number): Date {
+  const firstDow = new Date(Date.UTC(year, monthIndex, 1)).getUTCDay();
+  const offset = (targetDow - firstDow + 7) % 7;
+  const day = 1 + offset + (nth - 1) * 7;
+  return new Date(Date.UTC(year, monthIndex, day));
+}
+
+function isoDatePrefix(d: Date): string {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+export function buildRollingMacroBlackoutEvents(referenceDate = new Date(), horizonMonths = 14) {
+  const startYear = referenceDate.getUTCFullYear();
+  const startMonth = referenceDate.getUTCMonth();
+  const monthFloorMs = Date.UTC(startYear, startMonth, 1);
+
+  const rollingEvents: Array<{
+    id: string;
+    name: string;
+    category: string;
+    impact: string;
+    scheduledUtc?: string;
+    recurringEtWindow?: string;
+    bufferMinutesBefore: number;
+    bufferMinutesAfter: number;
+    sizeMultiplierDuringWindow: number;
+    affectedContracts: string[];
+    rationale: string;
+  }> = [];
+
+  for (let i = 0; i <= horizonMonths; i += 1) {
+    const probe = new Date(Date.UTC(startYear, startMonth + i, 1));
+    const y = probe.getUTCFullYear();
+    const m = probe.getUTCMonth();
+    const ym = `${y}-${String(m + 1).padStart(2, '0')}`;
+    const releaseHourUtc = isUsEdtMonth(m) ? '12:30:00Z' : '13:30:00Z';
+
+    // 1. Recurring US NFP: 1st Friday of each month at 08:30 ET
+    const nfpDate = nthWeekdayOfMonthUtc(y, m, 5, 1);
+    rollingEvents.push({
+      id: `us-nfp-${ym}`,
+      name: 'US Non-Farm Payrolls & Unemployment Rate (BLS)',
+      category: 'LABOR',
+      impact: 'HIGH',
+      scheduledUtc: `${isoDatePrefix(nfpDate)}T${releaseHourUtc}`,
+      bufferMinutesBefore: 15,
+      bufferMinutesAfter: 15,
+      sizeMultiplierDuringWindow: 0,
+      affectedContracts: ['ES', 'MES', 'NQ', 'MNQ', 'GC', 'MGC', 'XAUUSD'],
+      rationale: 'Recurring 1st-Friday 08:30 ET BLS release; high-slippage caution.'
+    });
+
+    // 2. Recurring US CPI cadence window: 2nd Wednesday of each month at 08:30 ET
+    const cpiDate = nthWeekdayOfMonthUtc(y, m, 3, 2);
+    rollingEvents.push({
+      id: `us-cpi-${ym}`,
+      name: 'US CPI & Core CPI Window (BLS Cadence)',
+      category: 'INFLATION',
+      impact: 'HIGH',
+      scheduledUtc: `${isoDatePrefix(cpiDate)}T${releaseHourUtc}`,
+      bufferMinutesBefore: 15,
+      bufferMinutesAfter: 15,
+      sizeMultiplierDuringWindow: 0,
+      affectedContracts: ['ES', 'MES', 'NQ', 'MNQ', 'GC', 'MGC', 'XAUUSD'],
+      rationale: 'Topstep/Apex/FTMO Tier-1 CPI slippage & news-blackout protection.'
+    });
+
+    // 3. Quarterly FOMC SEP Rate Decisions (Mar, Jun, Sep, Dec — 3rd Wednesday at 14:00 ET)
+    if (m === 2 || m === 5 || m === 8 || m === 11) {
+      const fomcDate = nthWeekdayOfMonthUtc(y, m, 3, 3);
+      const fomcHourUtc = isUsEdtMonth(m) ? '18:00:00Z' : '19:00:00Z';
+      rollingEvents.push({
+        id: `fomc-rate-${ym}`,
+        name: 'FOMC Rate Decision & Press Conference (Federal Reserve)',
+        category: 'CENTRAL_BANK',
+        impact: 'EXTREME',
+        scheduledUtc: `${isoDatePrefix(fomcDate)}T${fomcHourUtc}`,
+        bufferMinutesBefore: 20,
+        bufferMinutesAfter: 35,
+        sizeMultiplierDuringWindow: 0,
+        affectedContracts: ['ES', 'MES', 'NQ', 'MNQ', 'GC', 'MGC', 'CL', 'MCL', 'XAUUSD'],
+        rationale: 'Quarterly FOMC dot-plot + press conference spreads routinely widen dramatically.'
+      });
+    }
+  }
+
+  const upcomingDated = rollingEvents
+    .filter((ev) => !ev.scheduledUtc || Date.parse(ev.scheduledUtc) >= monthFloorMs)
+    .sort((a, b) => Date.parse(a.scheduledUtc ?? '') - Date.parse(b.scheduledUtc ?? ''));
+
+  upcomingDated.push({
     id: 'cme-daily-maint',
     name: 'CME Globex Daily Settlement & Maintenance Break',
     category: 'SESSION',
@@ -314,19 +363,23 @@ const CME_BLACKOUT_EVENTS = [
     sizeMultiplierDuringWindow: 0,
     affectedContracts: ['ES', 'MES', 'NQ', 'MNQ', 'GC', 'MGC', 'CL', 'MCL'],
     rationale: 'Prop firm EOD rules require zero open positions across the 17:00 ET close.'
-  }
-];
+  });
 
-export function buildBlackoutCalendarResponse(auth: CloudAuthResult) {
+  return upcomingDated;
+}
+
+export function buildBlackoutCalendarResponse(auth: CloudAuthResult, referenceDate = new Date()) {
+  const events = buildRollingMacroBlackoutEvents(referenceDate, 14);
   return {
     ok: true,
     openAccess: true,
-    licenseModel: 'WinRAR Dual (Solo $0 Full 300-pt)',
+    licenseModel: 'ApexHive Dual License (Solo 0 USDC Forever · Team Early-Bird 99 USDC · Enterprise Early-Bird 499 USDC)',
     authenticated: auth.authenticated,
     tier: auth.authenticated ? auth.tier : 'solo_free_300pt',
     kvClaimed: auth.authenticated ? auth.kvClaimed : false,
     schemaVersion: '2026.11.v3',
-    generatedAtUtc: new Date().toISOString(),
+    rollingHorizonMonths: 14,
+    generatedAtUtc: referenceDate.toISOString(),
     cmeMaintenanceDailyEt: '17:00-18:00 America/New_York',
     usEuDstNote: 'Verify 1-hour London/NY overlap shifts during March & Oct/Nov US/EU DST mismatch weeks.',
     newsPolicyDistinction: {
@@ -340,7 +393,7 @@ export function buildBlackoutCalendarResponse(auth: CloudAuthResult) {
       consecLossTiltLimit: 3,
       tiltCooldownMinutes: 15
     },
-    events: CME_BLACKOUT_EVENTS
+    events
   };
 }
 

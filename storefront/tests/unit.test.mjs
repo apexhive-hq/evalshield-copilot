@@ -408,11 +408,13 @@ test('Open 300-pt Sandbox opens analytical APIs at $0 while guarding live outbou
   const enterpriseToken = await signTestProToken(privateJwkJson, { tier: 'enterprise', maxAccounts: null });
   const expiredToken = await signTestProToken(privateJwkJson, { expiresAt: Date.now() - 10_000 });
 
-  // 1. Blackout calendar & Presets are 100% open at $0 (WinRAR full-open), while invalid tokens still fail closed (403)
+  // 1. Blackout calendar & Presets are 100% open at $0 (Solo-Free full-open), rolling multi-year (>= 2027), while invalid tokens still fail closed (403)
   const calPublic = await (await app.request('https://evalshield.test/api/cloud/blackout-calendar', {}, env)).json();
   assert.equal(calPublic.openAccess, true);
   assert.equal(calPublic.tier, 'solo_free_300pt');
-  assert.ok(Array.isArray(calPublic.events) && calPublic.events.length >= 5);
+  assert.ok(Array.isArray(calPublic.events) && calPublic.events.length >= 15);
+  assert.ok(calPublic.events.some((e) => typeof e.scheduledUtc === 'string' && e.scheduledUtc >= '2027-02-01'));
+  assert.ok(calPublic.events.some((e) => e.id === 'cme-daily-maint'));
 
   const calBad = await app.request(
     'https://evalshield.test/api/cloud/blackout-calendar',

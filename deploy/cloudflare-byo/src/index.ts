@@ -239,7 +239,7 @@ export default {
       return Response.json({
         ok: true,
         service: 'evalshield-byo-sentinel',
-        version: '3.0.0',
+        version: '3.0.2',
         costUsd: 0,
         orderRoutingEnabled: false
       });

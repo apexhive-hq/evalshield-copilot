@@ -1,6 +1,6 @@
 # Deploy Your Own `$0` 24/7 Solo Sentinel (`deploy/cloudflare-byo/`)
 
-Under the **WinRAR Solo `$0` License**, single traders can deploy this lightweight sentinel onto **their own free Cloudflare Workers account** in under 5 minutes. Even when your trading PC is turned off, your private Cloudflare Cron (`*/15 * * * *`) checks Hyperliquid Funding/OI, Polymarket macro odds, US/EU DST shifts, and pre-filtered TradingView webhooks before messaging your own Telegram or Discord.
+Under the **ApexHive Dual License (`Solo 0 USDC Forever`)**, single traders can deploy this lightweight sentinel onto **their own free Cloudflare Workers account** in under 5 minutes. Even when your trading PC is turned off, your private Cloudflare Cron (`*/15 * * * *`) checks Hyperliquid Funding/OI, Polymarket macro odds, US/EU DST shifts, and pre-filtered TradingView webhooks before messaging your own Telegram or Discord.
 
 **Server cost to ApexHive: `$0.00`. Data leaves your account: `ZERO`.**
 

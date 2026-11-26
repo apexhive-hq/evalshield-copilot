@@ -107,7 +107,7 @@ test('SQLite WAL journal deduplicates CSV re-imports, tracks tilt leakage, and s
   db.close();
 });
 
-test('HTTP server unlocks local MIT accounts, enforces strict CORS, validates Ed25519, HMAC webhook, and 413 cap', async () => {
+test('HTTP server unlocks Solo-Free local accounts, enforces strict CORS, validates Ed25519, HMAC webhook, and 413 cap', async () => {
   const { publicKey, privateKey } = generateKeyPairSync('ed25519');
   const spkiB64 = publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
   const webhookSecret = 'test-local-webhook-secret-32bytes';
@@ -153,7 +153,7 @@ test('HTTP server unlocks local MIT accounts, enforces strict CORS, validates Ed
         'content-type': 'application/json',
         origin: 'https://trusted.evalshield.example'
       },
-      body: JSON.stringify({ name: 'Second Local MIT Eval', presetId: 'apex_50k_eod' })
+      body: JSON.stringify({ name: 'Second Solo-Free Eval', presetId: 'apex_50k_eod' })
     });
     assert.equal(createdLocal.status, 201);
     assert.equal(

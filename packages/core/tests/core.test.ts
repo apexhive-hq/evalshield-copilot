@@ -245,7 +245,7 @@ test('Ed25519 EVALSHIELD-PRO-v1 license verification & account tier limits', () 
   assert.equal(ok.tier, 'solo');
   assert.equal(getMaxAllowedAccounts(ok), 20);
 
-  // Tampered payload rejected; MIT Local Core unlocks local accounts without restriction
+  // Tampered payload rejected; Solo-Free local core unlocks local accounts without restriction
   const tamperedPayload = Buffer.from(JSON.stringify({ ...payload, tier: 'team' }), 'utf8').toString('base64url');
   const bad = verifyEvalShieldLicenseToken(`${TOKEN_PREFIX}${tamperedPayload}.${sigB64}`, {
     publicKeySpkiB64: spkiB64
@@ -253,7 +253,7 @@ test('Ed25519 EVALSHIELD-PRO-v1 license verification & account tier limits', () 
   assert.equal(bad.valid, false);
   assert.equal(getMaxAllowedAccounts(bad), null);
 
-  // Team ($99 Early-Bird) and Enterprise ($499 Early-Bird) WinRAR commercial tokens verify cleanly
+  // Team ($99 Early-Bird) and Enterprise ($499 Early-Bird) ApexHive commercial tokens verify cleanly
   for (const tier of ['team', 'enterprise'] as const) {
     const commPayloadB64 = Buffer.from(
       JSON.stringify({ ...payload, tier, maxAccounts: tier === 'team' ? 99 : null }),

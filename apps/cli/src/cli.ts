@@ -59,7 +59,7 @@ function strFlag(flags: Record<string, string | boolean>, key: string, fallback?
 }
 
 function printHelp(): void {
-  console.log(`evalshield — WinRAR Full-Open Prop-Firm & Cross-Market Risk Co-Pilot ($0 Solo, Read-Only)
+  console.log(`evalshield — ApexHive Dual-Licensed Cross-Market Prop-Firm Risk Co-Pilot ($0 Solo Forever, Read-Only)
 
 Usage:
   evalshield check [--db path] [--account id] [--preset topstep_50k|ftmo_100k_2step|tradeify_50k_growth] [--symbol ES|XAUUSD|BTC-PERP] [--stop-ticks 10] [--spread-ticks 0] [--atr 2.5] [--risk-pct 0.2] [--skip-globex] [--json]

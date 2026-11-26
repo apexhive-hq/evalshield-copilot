@@ -24,8 +24,8 @@ function toPublicKeyObject(spkiB64: string) {
 }
 
 export function getMaxAllowedAccounts(verification: LicenseVerificationResult): number | null {
-  // Local MIT Core accounts & checks are unlocked generously ($0 unlimited locally);
-  // Pro Solo/Team tiers gate non-bypassable Hosted Cloud Pro API access.
+  // Solo-Free local core accounts & checks are unlocked generously ($0 unlimited locally);
+  // Team/Enterprise tokens authenticate hosted commercial relay entitlements.
   if (!verification.valid || verification.tier === 'free') {
     return null;
   }

@@ -443,7 +443,7 @@ export function createEvalShieldHttpServer(options: ServerOptions): http.Server 
             supportEmail: 'apexhive.hq@proton.me',
             mode: 'sqlite-server',
             orderRoutingEnabled: false,
-            winrarLicenseModel: {
+            dualLicenseModel: {
               solo: '0 USDC (Full 300-pt Local Engine)',
               teamEarlyBird: '99 USDC (2-99 seats)',
               enterpriseEarlyBird: '499 USDC (100+ seats)'

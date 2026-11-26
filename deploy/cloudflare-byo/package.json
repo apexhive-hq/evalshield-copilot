@@ -1,6 +1,6 @@
 {
   "name": "@apexhive-labs/evalshield-byo-sentinel",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "description": "Zero-cost 1-click self-hosted Cloudflare Workers + Durable Object + Cron sentinel for Solo evalshield-copilot traders (15s Morning Brief & TradingView Pre-Filtered Telegram/Discord Alerts).",
   "license": "SEE LICENSE IN ../../LICENSE",
   "private": true,
