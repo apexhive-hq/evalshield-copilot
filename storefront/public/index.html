@@ -26,10 +26,13 @@
 
   <main class="container">
     <section class="hero">
-      <span class="badge-pill">ApexHive Dual License · Solo 0 USDC Forever · Team Early-Bird 99 / Enterprise 499 USDC</span>
-      <h1>Cross-Market Prop-Firm Risk Shield, Portfolio Anti-Hedge Guard &amp; Co-Pilot</h1>
+      <span class="badge-pill">Read-Only Prop-Firm &amp; Futures Risk Shield · Solo local: Free · Team: 99 USDC · Enterprise: 499 USDC</span>
+      <h1>Read-Only Prop-Firm &amp; Futures Risk Shield</h1>
       <p class="subtitle">
-        Full rule-based risk evaluation engine open at <code>0 USDC</code> for Solo traders: Intraday/EOD/Static trailing floors, ATR &amp; Spread R-drag across CME Futures (<code>ES/NQ/GC/CL</code>), Gold (<code>XAUUSD</code>), FX &amp; Perps (<code>BTC-PERP / ETH-PERP / SOL-PERP</code>), FTMO/Tradeify news &amp; anti-hedge rules, plus 1-click self-host BYO Cloudflare kit.
+        Calculate intraday, end-of-day, and static trailing drawdown floors, size contracts across CME Futures (<code>ES/NQ/GC/CL</code>), Spot Gold &amp; FX (<code>XAUUSD/EURUSD</code>), and Perps (<code>BTC/ETH/SOL-PERP</code>), check multi-account anti-hedge rules, track macro blackout windows, and run 25,000 evaluation Monte Carlo paths — without broker credentials or automated order execution.
+      </p>
+      <p class="subtitle" style="margin-top: 8px; font-size: 0.92rem;">
+        <strong>6 Modules:</strong> Drawdown Guard · Cross-Market Sizer · Portfolio Anti-Hedge Check · Local SQLite Trade Journal · Verified Macro Event Calendar · 25k Monte Carlo &amp; Alert Webhook
       </p>
       <div id="compliance-firewall" class="firewall-banner">
         <strong>Human-in-the-Loop Firewall (Apex / Topstep / FTMO / Tradeify Safe):</strong> Strictly read-only risk math, pre-trade thesis audits, and passive feeds (Polymarket Gamma &amp; Hyperliquid <code>/info</code>). Zero broker API keys, zero order routing, and zero X/Twitter scraping.
@@ -186,7 +189,7 @@
 
     <section id="cloud-pro" class="card">
       <div class="toolbar" style="justify-content: space-between; margin-bottom: 12px;">
-        <h2 style="margin: 0;">Open Risk Sandbox API (100% Free at $0 for Solo)</h2>
+        <h2 style="margin: 0;">Open Risk Sandbox API (Macro Calendar, Presets &amp; Portfolio Guard)</h2>
         <div class="toolbar">
           <button id="cloud-blackouts-btn" class="btn" type="button">Fetch Macro Blackout Feed</button>
           <button id="cloud-presets-btn" class="btn" type="button">Sync Canonical Firm Presets</button>
@@ -194,26 +197,26 @@
         </div>
       </div>
       <p class="subtitle">
-        Solo-Free / Commercial Seat philosophy: all analytical cloud tools are unlocked publicly at <code>$0</code> — full FOMC/CPI/FTMO/MFFU blackout rules (<code>GET /api/cloud/blackout-calendar</code>), canonical presets (<code>GET /api/cloud/presets</code>), 25,000-run Monte Carlo (<code>POST /api/cloud/monte-carlo</code>), live Hyperliquid &amp; DST Brief (<code>GET /api/cloud/brief</code>), and Tradeify/FTMO Portfolio Anti-Hedge check (<code>POST /api/cloud/portfolio-guard</code>). Only live outbound webhook relay (<code>dryRun: false</code>) requires a Commercial Team or Enterprise license (or deploy <code>deploy/cloudflare-byo/</code> to your own free Cloudflare account).
+        Public analytical endpoints for verified 2026–2027 FOMC/CPI/NFP blackout rules (<code>GET /api/cloud/blackout-calendar</code>), canonical firm presets (<code>GET /api/cloud/presets</code>), 25,000-run Monte Carlo simulations (<code>POST /api/cloud/monte-carlo</code>), live Hyperliquid &amp; DST Brief (<code>GET /api/cloud/brief</code>), and Portfolio Anti-Hedge checks (<code>POST /api/cloud/portfolio-guard</code>). Live outbound Telegram/Discord alert dispatches (<code>dryRun: false</code>) require a Team or Enterprise license, or self-hosting via <code>deploy/cloudflare-byo/</code>.
       </p>
-      <pre id="cloud-preview-output" class="code-block">Click any live sandbox button above to inspect responses at $0.</pre>
+      <pre id="cloud-preview-output" class="code-block">Click any live sandbox button above to inspect live API responses.</pre>
     </section>
 
     <section id="licensing" class="card">
-      <h2>ApexHive Dual Source-Available License (Solo 0 USDC Forever · Commercial Team / Enterprise)</h2>
+      <h2>ApexHive Dual Source-Available License</h2>
       <p class="subtitle">
-        <strong>Solo Traders (1 natural person)</strong> run the complete rule-based risk evaluation core, unlimited accounts, BYO connectors, SQLite journal, and self-host Cloudflare Workers Cron kit forever at <code>0 USDC</code>. Organizations (2+ traders, coaching desks, funded rooms, prop firms) purchase a commercial certificate below.
+        <strong>Solo local: Free</strong> (1 natural person — complete local risk engine, SQLite journal, Trade Journal, BYO connectors, and self-hosted alert worker). <strong>Team: 99 USDC</strong> (2–99 seats) and <strong>Enterprise: 499 USDC</strong> (100+ seats) include an Ed25519 organization certificate and hosted outbound alert relay.
       </p>
 
       <div class="pricing-grid">
         <div class="tier-card">
           <div>
             <h3>Solo Personal (1 Person)</h3>
-            <div class="tier-price">0 USDC</div>
+            <div class="tier-price">Free</div>
             <ul class="tier-list">
-              <li>100% Full Rule-Based Risk Engine Forever (Zero HWID or 24h Lock)</li>
-              <li>FTMO, Tradeify, Apex, Topstep, MFFU + Gold/FX/Perps</li>
-              <li>1-Click Self-Host <code>deploy/cloudflare-byo/</code> Telegram/Discord Cron</li>
+              <li>Complete local rule-based risk engine &amp; SQLite trade journal</li>
+              <li>FTMO, Tradeify, Apex, Topstep, MFFU + Futures/Gold/FX/Perps</li>
+              <li>Self-hosted <code>deploy/cloudflare-byo/</code> Telegram/Discord Cron kit</li>
             </ul>
           </div>
           <code class="code-block">git clone https://github.com/apexhive-hq/evalshield-copilot.git &amp;&amp; pnpm install --ignore-scripts &amp;&amp; pnpm run build</code>
@@ -223,7 +226,6 @@
           <div>
             <h3>Commercial Team (2–99 Seats)</h3>
             <div class="tier-price">99 USDC</div>
-            <div class="field-label">Founder Early-Bird</div>
             <ul class="tier-list">
               <li>Official Ed25519 Team Certificate (2–99 trading seats / classroom)</li>
               <li>Hosted Outbound Telegram &amp; Discord Alert Relay API</li>
@@ -237,7 +239,6 @@
           <div>
             <h3>Commercial Enterprise (100+ Seats)</h3>
             <div class="tier-price">499 USDC</div>
-            <div class="field-label">Founder Early-Bird</div>
             <ul class="tier-list">
               <li>Unlimited Seats (Prop Firms, Hedge Funds, Coaching Networks)</li>
               <li>Internal White-Label &amp; Custom Redistribution Entitlement</li>
@@ -256,8 +257,8 @@
         <div class="toolbar">
           <label class="field-label" for="tier-select" style="margin: 0;">Selected Tier:</label>
           <select id="tier-select" class="text-input" style="width: auto; min-width: 300px; max-width: 100%;">
-            <option value="team" selected>Commercial Team (2–99 Seats) — Founder Early-Bird 99 USDC</option>
-            <option value="enterprise">Commercial Enterprise (100+ Seats) — Founder Early-Bird 499 USDC</option>
+            <option value="team" selected>Commercial Team (2–99 Seats) — 99 USDC</option>
+            <option value="enterprise">Commercial Enterprise (100+ Seats) — 499 USDC</option>
           </select>
           <button id="wallet-pay-btn" class="btn btn-primary" type="button">
             Pay 99 USDC with Base Wallet

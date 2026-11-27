@@ -396,7 +396,7 @@ app.get('/api/health', (c) => {
     ok: true,
     service: 'evalshield-copilot',
     version: '3.0.2',
-    licenseModel: 'ApexHive Dual License (Solo 0 USDC Forever · Team Early-Bird 99 USDC · Enterprise Early-Bird 499 USDC)',
+    licenseModel: 'ApexHive Dual Source-Available License (Solo local: Free · Team: 99 USDC · Enterprise: 499 USDC)',
     readOnlyFirewall: true,
     kvBound: Boolean(c.env.LICENSES_KV),
     globalReplayGuardBound: Boolean(c.env.GLOBAL_CLAIMED_TX_KV),
@@ -432,13 +432,13 @@ app.get('/api/config', (c) => {
         priceUsd: '0',
         seats: '1 natural person',
         maxAccounts: null,
-        license: 'Solo-Free Rule-Based Edition (0 USDC Forever, Self-Host BYO Cloud Kit Included)'
+        license: 'Solo local: Free (Rule-based risk engine, SQLite journal, and self-hosted BYO alert worker)'
       },
       team: {
         priceAtomic: c.env.TEAM_PRICE_USDC_ATOMIC || '99000000',
         priceUsd: '99.00',
         seats: '2-99 seats',
-        pricingLabel: 'Founder Early-Bird',
+        pricingLabel: 'Team Commercial',
         maxAccounts: null,
         cloudQuota: 'Commercial Team Desk License (2-99 seats + Hosted Outbound Telegram/Discord Alert Relay)'
       },
@@ -446,7 +446,7 @@ app.get('/api/config', (c) => {
         priceAtomic: c.env.ENTERPRISE_PRICE_USDC_ATOMIC || '499000000',
         priceUsd: '499.00',
         seats: '100+ seats',
-        pricingLabel: 'Founder Early-Bird',
+        pricingLabel: 'Enterprise Commercial',
         maxAccounts: null,
         cloudQuota: 'Commercial Enterprise / Prop Firm / Fund License (100+ seats + White-Label Entitlement)'
       }
@@ -919,7 +919,7 @@ app.get('/api/download', async (c) => {
   const bundle = {
     ok: true,
     product: 'evalshield-copilot',
-    licenseModel: 'ApexHive Dual License (Solo 0 USDC Forever · Commercial Team/Enterprise)',
+    licenseModel: 'ApexHive Dual Source-Available License (Solo local: Free · Team: 99 USDC · Enterprise: 499 USDC)',
     repoUrl: 'https://github.com/apexhive-hq/evalshield-copilot',
     tier: grant.tier,
     maxAccounts: null,

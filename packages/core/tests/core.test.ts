@@ -262,7 +262,7 @@ test('Ed25519 EVALSHIELD-PRO-v1 license verification & account tier limits', () 
   assert.equal(bad.valid, false);
   assert.equal(getMaxAllowedAccounts(bad), null);
 
-  // Team ($99 Early-Bird) and Enterprise ($499 Early-Bird) ApexHive commercial tokens verify cleanly
+  // Team ($99 USDC) and Enterprise ($499 USDC) ApexHive commercial tokens verify cleanly
   for (const tier of ['team', 'enterprise'] as const) {
     const commPayloadB64 = Buffer.from(
       JSON.stringify({ ...payload, tier, maxAccounts: tier === 'team' ? 99 : null }),

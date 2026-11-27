@@ -3,7 +3,7 @@
   "version": "3.0.2",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
-  "description": "ApexHive Dual-Licensed Prop-Firm & Cross-Market Risk Co-Pilot (Solo 0 USDC Forever Engine + Early-Bird Commercial Team 99 / Enterprise 499 USDC + Self-Host Cloudflare BYO Kit; strictly read-only).",
+  "description": "Read-only prop-firm and futures risk shield, cross-market sizer, anti-hedge portfolio guard, SQLite journal, and 25k Monte Carlo simulator (Solo local: Free; Team: 99 USDC; Enterprise: 499 USDC).",
   "type": "module",
   "engines": {
     "node": ">=24.0.0"

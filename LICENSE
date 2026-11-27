@@ -1,16 +1,16 @@
-ApexHive Dual Source-Available License (v3.0 — Solo-Free / Commercial Seat Model)
+ApexHive Dual Source-Available License (v3.0 — Solo / Commercial Seat Model)
 
 Copyright (c) 2026 ApexHive Labs
 
-Permission is hereby granted, free of charge (0 USDC), to any SINGLE NATURAL PERSON ("Solo Trader") to copy, install, modify, self-host, and use all features of this software — including packages/core, packages/journal, apps/cli, apps/web, and deploy/cloudflare-byo — for personal trading risk management, research, education, and evaluation/funded account self-auditing, forever, subject to the following conditions:
+Permission is hereby granted, free of charge (0 USDC), to any SINGLE NATURAL PERSON ("Solo Trader") to copy, install, modify, self-host, and use all features of this software — including packages/core, packages/journal, apps/cli, apps/web, and deploy/cloudflare-byo — for personal trading risk management, research, education, and evaluation/funded account self-auditing, without expiration, subject to the following conditions:
 
 1. Commercial & Multi-Seat Licensing Requirement:
    A valid paid Commercial License Token ("EVALSHIELD-PRO-v1..." issued by ApexHive Labs via Base USDC verification) is required for any of the following uses:
-   - Team / Desk Use (2 to 99 seats): multi-trader access, coaching classrooms, paid signal/mentorship communities, or shared deployments within an organization ("Team License — Founder Early-Bird 99 USDC").
-   - Enterprise / Prop-Firm / Fund Use (100+ seats): proprietary trading firms, hedge funds, brokerage desks, or white-label commercial redistribution ("Enterprise License — Founder Early-Bird 499 USDC").
+   - Team / Desk Use (2 to 99 seats): multi-trader access, coaching classrooms, paid signal/mentorship communities, or shared deployments within an organization ("Team License — 99 USDC").
+   - Enterprise / Prop-Firm / Fund Use (100+ seats): proprietary trading firms, hedge funds, brokerage desks, or white-label commercial redistribution ("Enterprise License — 499 USDC").
 
 2. Solo Exemption Guarantee:
-   Individual natural persons using the software strictly for their own private personal trading pay 0 USDC forever with zero feature limitations, zero hardware locks, and zero trial expirations.
+   Individual natural persons using the software strictly for their own private personal trading require no payment (0 USDC) and face no feature limitations, hardware locks, or trial expirations.
 
 3. Strict Read-Only / No Financial Advice Disclaimer:
    THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. ALL CALCULATIONS ARE STRICTLY INFORMATIONAL AND READ-ONLY. APEXHIVE LABS SHALL NOT BE LIABLE FOR ANY TRADING LOSSES, PROP-FIRM EVALUATION BREACHES, SLIPPAGE, OR DAMAGES ARISING FROM USE OF THIS SOFTWARE.

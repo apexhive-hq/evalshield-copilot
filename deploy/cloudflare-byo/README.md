@@ -1,8 +1,6 @@
-# Deploy Your Own `$0` 24/7 Solo Sentinel (`deploy/cloudflare-byo/`)
+# Self-Hosted Alert Sentinel (`deploy/cloudflare-byo/`)
 
-Under the **ApexHive Dual License (`Solo 0 USDC Forever`)**, single traders can deploy this lightweight sentinel onto **their own free Cloudflare Workers account** in under 5 minutes. Even when your trading PC is turned off, your private Cloudflare Cron (`*/15 * * * *`) checks Hyperliquid Funding/OI, Polymarket macro odds, US/EU DST shifts, and pre-filtered TradingView webhooks before messaging your own Telegram or Discord.
-
-**Server cost to ApexHive: `$0.00`. Data leaves your account: `ZERO`.**
+Standalone Cloudflare Workers alert sentinel for `evalshield-copilot`. Runs on your own Cloudflare Workers account on a 15-minute Cron schedule (`*/15 * * * *`) to monitor Hyperliquid funding/OI, Polymarket macro odds, US/EU DST transitions, and pre-filtered TradingView webhooks, forwarding formatted risk alerts to your Telegram or Discord when your trading machine is off.
 
 ## 5-Minute Setup
 
@@ -24,3 +22,7 @@ npx wrangler deploy
 ```
 
 Configure `POLYMARKET_SLUGS`, `POLL_COINS`, and `BRIEF_UTC_HOUR` in `wrangler.toml`.
+
+---
+
+Included for Solo local use (Free) under the [ApexHive Dual Source-Available License](../../LICENSE). Your webhook secrets and alert payloads remain inside your own Cloudflare account.

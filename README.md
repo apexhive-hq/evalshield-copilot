@@ -1,12 +1,17 @@
 # evalshield-copilot (v3.0.2)
 
-**Full-Open Cross-Market Prop-Firm Risk Shield, Multi-Account Anti-Hedge Guard, Pre-Trade Thesis Journal & 1-Click Self-Host BYO Cloud Kit** (`0 USDC` Solo Forever · Strictly Read-Only / Human-in-the-Loop).
+**Read-only risk shield, position sizer, and execution journal for prop-firm and futures traders.** Computes trailing drawdown floors, cross-market contract sizing, multi-account anti-hedge checks, macro news blackouts, and 25,000-run evaluation simulations locally without broker credentials or automated order execution.
 
-`evalshield-copilot` uses the **ApexHive Dual Source-Available License (Solo-Free / Commercial Seat Model)**:
-- **Single Traders (`Solo — 1 person`)** get **100% of the rule-based risk evaluation engine free forever (`0 USDC`)** — zero HWID locks, zero 24h trial countdowns, zero feature paywalls, plus a `$0` 1-click Cloudflare self-host Cron template (`deploy/cloudflare-byo/`).
-- **Teams & Organizations (`2+` seats)** purchase an official commercial Ed25519 certificate verified on Base Mainnet USDC (`Team 2–99 seats: Founder Early-Bird 99 USDC` · `Enterprise 100+ seats: Founder Early-Bird 499 USDC`).
+## Core Modules
 
-> **Human-in-the-Loop Firewall:** Strictly read-only risk mathematics, pre-trade/post-trade audit journaling, and passive feed monitoring. **Zero X/Twitter scraping, zero automated order placement or copy-trade execution, zero geo-blocked Binance/Bybit dependencies, and concise 15-second cards instead of bloated news walls.**
+1. **Drawdown Guard** (`packages/core`): Tracks intraday trailing, end-of-day trailing, and static drawdown floors across Topstep, Apex, MFFU, FTMO, and Tradeify rules, with soft daily loss buffers, consistency headroom, and tilt cooldowns.
+2. **Cross-Market Sizer** (`packages/core`): Converts stop distance, live spread/rollover R-drag, and 14-bar ATR into max contract and lot caps across CME Futures (`ES/MES/NQ/MNQ/GC/MGC/CL/MCL`), Spot Gold & FX (`XAUUSD/EURUSD`), and Perps (`BTC-PERP/ETH-PERP/SOL-PERP`), with micro contract fallbacks.
+3. **Portfolio Anti-Hedge Check** (`packages/core`, `storefront/`): Flags opposite-direction positions across linked accounts and correlated `ES` + `NQ` beta exposure before entry.
+4. **Trade Journal** (`packages/journal`): Local SQLite WAL execution ledger with pre-trade thesis snapshots, SHA-256 fill deduplication, Tradovate/NinjaTrader 8/Rithmic/TradingView CSV FIFO pairing, and formula-safe CSV export.
+5. **Macro Event Calendar** (`storefront/`): Verified 2026–2027 FOMC, BLS CPI, and BLS NFP schedules converted with exact US Eastern DST rules, separating strict `±2m` order/SL/TP blackouts (FTMO) from funded-only restrictions (MFFU) and CME daily maintenance windows.
+6. **25k Monte Carlo & Alert Webhook** (`storefront/`, `deploy/cloudflare-byo/`): Simulates 25,000 evaluation survival paths and dispatches pre-filtered risk alerts to Telegram or Discord (`deploy/cloudflare-byo/` for self-hosted Cron workers, or hosted relay for Team/Enterprise licenses).
+
+> **Human-in-the-Loop Firewall:** Strictly read-only risk math, pre-trade/post-trade audit journaling, and passive feed monitoring (Polymarket Gamma API & Hyperliquid `/info`). Zero broker API keys, zero order placement, and zero X/Twitter scraping.
 
 ---
 
@@ -40,29 +45,19 @@
          portfolio-check / import /  • Cross-Market Risk Shield
          report / activate / serve   • Collapsible BYO Connectors
 
-  1-Click Solo Self-Host Sentinel (deploy/cloudflare-byo/)
-  • Deploy on YOUR OWN $0 Cloudflare Workers account in 5 min (BYOStateDO + */15 Cron)
-  • 24/7 Telegram/Discord 15s Brief & TradingView Pre-Filtered Alerts with $0 server cost
+  Self-Host Alert Sentinel (deploy/cloudflare-byo/)
+  • Runs on your own Cloudflare Workers account (BYOStateDO + */15 Cron)
+  • Sends 15s Brief & pre-filtered TradingView webhook alerts to Telegram/Discord
 
   Public Sandbox & Commercial License Issuer (storefront/)
   • https://evalshield-copilot.apexhive-hq.workers.dev/
-  • All analytical tools open at $0 (25k Monte Carlo, Presets, Blackouts, Gamma/HL Brief)
+  • Analytical risk sandbox endpoints (25k Monte Carlo, Presets, Blackouts, Gamma/HL Brief)
   • Base USDC ERC-1271 / EIP-6492 + TxClaimLockDO -> Ed25519 Team/Enterprise Certificates
 ```
 
 ---
 
-## Licensing (ApexHive Dual License — Solo $0 · Early-Bird Commercial)
-
-| Tier | Eligibility | Price (One-Time Base USDC) | Scope |
-| --- | --- | --- | --- |
-| **Solo Personal** | `1` natural person | **`0 USDC`** | **Full rule-based risk engine**, unlimited local accounts, BYO connectors, Portfolio Guard, public 25k sandbox, and `deploy/cloudflare-byo/` self-host kit forever |
-| **Commercial Team** | `2–99` seats (coaching rooms / trading desks) | **`Founder Early-Bird 99 USDC`** | Official Ed25519 organization license + hosted outbound Telegram/Discord relay endpoint |
-| **Commercial Enterprise** | `100+` seats (prop firms / funds / white-label) | **`Founder Early-Bird 499 USDC`** | Organization-wide unlimited seats, custom SLA support, & commercial redistribution entitlement |
-
----
-
-## Quickstart (`0 USDC` Solo — Node 24)
+## Quickstart (Node 24)
 
 Requires **Node.js `>= 24.0.0`** (uses built-in `node:sqlite` and `node:test`) and **pnpm `10+`**.
 
@@ -83,7 +78,7 @@ node apps/cli/dist/src/cli.js import --file ./my-trades.csv --format auto
 node apps/cli/dist/src/cli.js serve --port 4200
 ```
 
-Want 24/7 Telegram/Discord red-zone & morning brief alerts when your computer is off? Follow [`deploy/cloudflare-byo/README.md`](./deploy/cloudflare-byo/README.md) to deploy onto **your own `$0` Cloudflare account** in 5 minutes.
+Want 24/7 Telegram or Discord alerts when your computer is off? Follow [`deploy/cloudflare-byo/README.md`](./deploy/cloudflare-byo/README.md) to deploy the alert sentinel onto your own Cloudflare Workers account.
 
 ---
 
@@ -98,9 +93,13 @@ cd ../deploy/cloudflare-byo && pnpm install --ignore-scripts && pnpm run typeche
 cd ../../apps/web && pnpm test
 ```
 
-## License & Support
+## Licensing & Support
 
-- License: [ApexHive Dual Source-Available License](./LICENSE)
+`evalshield-copilot` is licensed under the [ApexHive Dual Source-Available License](./LICENSE):
+- **Solo local:** Free (`1` natural person — full local risk engine, SQLite journal, connectors, and `deploy/cloudflare-byo/` template)
+- **Team:** `99 USDC` one-time on Base (`2–99` seats — Ed25519 organization certificate + hosted outbound Telegram/Discord relay)
+- **Enterprise:** `499 USDC` one-time on Base (`100+` seats — organization-wide seats, redistribution entitlement, priority rule specs)
+
 - Live Sandbox & Commercial Issuer: `https://evalshield-copilot.apexhive-hq.workers.dev/`
 - Support: `apexhive.hq@proton.me`
 

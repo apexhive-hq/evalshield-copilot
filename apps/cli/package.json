@@ -1,7 +1,7 @@
 {
   "name": "@evalshield/cli",
   "version": "3.0.2",
-  "description": "Local CLI and dashboard host for EvalShield Co-Pilot (Solo-Free $0 rule-based cross-market prop risk shield, pre-trade thesis audit, 15s brief & SQLite journal).",
+  "description": "Local CLI and dashboard host for EvalShield Co-Pilot (read-only cross-market prop risk shield, pre-trade thesis audit, 15s brief & SQLite journal).",
   "license": "SEE LICENSE IN ../../LICENSE",
   "type": "module",
   "bin": {

@@ -536,7 +536,7 @@ export function buildBlackoutCalendarResponse(auth: CloudAuthResult, referenceDa
   return {
     ok: true,
     openAccess: true,
-    licenseModel: 'ApexHive Dual License (Solo 0 USDC Forever · Team Early-Bird 99 USDC · Enterprise Early-Bird 499 USDC)',
+    licenseModel: 'ApexHive Dual Source-Available License (Solo local: Free · Team: 99 USDC · Enterprise: 499 USDC)',
     authenticated: auth.authenticated,
     tier: auth.authenticated ? auth.tier : 'solo_free',
     kvClaimed: auth.authenticated ? auth.kvClaimed : false,
